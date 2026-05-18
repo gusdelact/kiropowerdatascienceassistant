@@ -29,17 +29,20 @@ Donde haya conflicto aparente entre ambos (por ejemplo, la tabla de queries por 
 
 ---
 
-## Regla 1: el pipeline tiene tres fases de diseño obligatorias
+## Regla 1: el pipeline tiene cuatro fases de diseño obligatorias
 
-Antes de cualquier `from sklearn...`, el proyecto debe producir tres documentos de diseño en `notes/`, **en este orden**:
+El proyecto debe producir cuatro documentos en `notes/`, **en este orden**:
 
+0. `notes/00_design_eda.md` — diseño y hallazgos del análisis exploratorio.
 1. `notes/01_design_fe.md` — diseño del feature engineering.
 2. `notes/02_design_modeling.md` — diseño del modelado.
 3. `notes/03_design_validation.md` — diseño de la validación.
 
 Cada uno se redacta consultando el `rag-books-mcp` y citando las secciones específicas. **No se permite escribir código de la fase N si el `notes/0N_*.md` correspondiente no existe**, salvo en los casos de la Regla 6 (excepciones).
 
-El orden de las fases coincide con el orden del flujo del power. La diferencia es que cada transición fase → código pasa por el documento de diseño.
+**Timing distinto para `notes/00_design_eda.md`**: a diferencia de las notas 01-03 que se producen *antes* del código de su fase, la nota 00 se produce **como parte de la fase de EDA**. Tiene una estructura mínima pre-EDA (preguntas guía e hipótesis) y se **completa al finalizar el EDA** con los hallazgos y el puente hacia FE. Bloquea la transición a `notes/01_design_fe.md`, no la ejecución de `02_eda.py`.
+
+El orden de las fases coincide con el orden del flujo del power. La diferencia es que cada transición fase → código (o EDA → diseño de FE) pasa por el documento de diseño.
 
 ---
 
@@ -91,6 +94,18 @@ Sin las cinco secciones, el documento no cumple. Si una sección es N/A, justifi
 
 Cada `notes/0N_design_*.md` debe contener **al menos** las siguientes consultas al RAG (más las que el problema requiera):
 
+### Fase 0: EDA (`notes/00_design_eda.md`)
+
+EDA tiene un régimen distinto a las demás fases: las consultas al RAG **no son obligatorias antes** de codificar `02_eda.py` (porque EDA es exploratorio por naturaleza), pero **sí lo son al cerrarlo**, para anclar los hallazgos que dispararán las decisiones de FE. Las consultas mínimas al cerrar el EDA son:
+
+- Disciplina del flujo iterativo (preferir R4DS Cap. 10): qué tipos de pregunta hacer (variación / covariación), cuándo iterar.
+- Lectura de la distribución del target (skew, multimodalidad, ceros estructurales) y qué significa para FE/modelado.
+- Tratamiento de outliers desde la perspectiva de descubrimiento vs. error (R4DS §10.4 + FES Cap. 6).
+- Diagnóstico de multicolinealidad y su impacto en familias de modelo candidatas (ESL §3.4).
+- Patrones de missing data observados (MCAR / MAR / MNAR) y consecuencias (FES Cap. 8).
+
+Si el dataset no presenta una de estas situaciones (ej. sin desbalance, sin missings, sin outliers), declarar "no aplica" en el documento y no consultar por compromiso.
+
 ### Fase 1: feature engineering (`notes/01_design_fe.md`)
 
 - Distribución del target y transformaciones (`log1p`, Box-Cox, Yeo-Johnson).
@@ -116,6 +131,25 @@ Cada `notes/0N_design_*.md` debe contener **al menos** las siguientes consultas 
 
 Si una decisión de la lista no aplica al proyecto (ej. desbalance en regresión), declararlo explícitamente en el documento y *no* consultar el RAG por compromiso. La regla es "consultar lo que aplica", no "consultar todo".
 
+### Cómo combinar libros en cada query
+
+El RAG indexa cinco libros. Cuando consultes para una decisión de FE/modelado/validación, **diversifica las fuentes** según el tipo de decisión:
+
+| Decisión | Libro principal | Libro de apoyo |
+|---|---|---|
+| Por qué algo funciona (teoría) | ESL, ISLP | — |
+| Cómo implementarlo en Python | PDSH | ISLP (labs) |
+| Heurísticas de feature engineering | FES | ESL §3 |
+| Filosofía / disciplina del flujo iterativo (sobre todo en EDA) | **R4DS** | FES |
+| Re-agrupación de categorías raras | R4DS §15 (factors) + FES §5 | — |
+
+**Regla específica para R4DS** (CC BY-NC-ND, ejemplos en R/tidyverse):
+
+1. Cita R4DS para la **idea o disciplina del proceso**, nunca para el código.
+2. Atribuye explícitamente: `[R4DS Cap. X — Wickham, Çetinkaya-Rundel, Grolemund]`.
+3. Si parafraseas un patrón tidyverse, muestra el equivalente en pandas/seaborn en la misma celda. Tabla de equivalencias en `theory-rag-guide.md` §"Importante sobre R4DS" y `workflow-eda.md` §"Filosofía R4DS para EDA".
+4. **NUNCA dejes código en R en `scripts/`, `notes/`, ni en la respuesta al usuario.** Si un fragmento del libro es útil pero está en R, parafrasea la idea y traduce.
+
 ---
 
 ## Regla 4: prohibición explícita de código sin diseño
@@ -130,11 +164,12 @@ Líneas de código que disparan esta verificación:
 
 | Fase | Disparadores |
 |---|---|
+| EDA | Iniciar `02_eda.py` con preguntas guía → crear `notes/00_design_eda.md` (estructura pre-EDA). Cerrar EDA antes de pasar a FE → completar `notes/00_design_eda.md` (hallazgos + puente). |
 | FE | `train_test_split`, `StandardScaler`, `OneHotEncoder`, `SMOTE`, `np.log1p` sobre target, `pd.qcut` para bins de stratify |
 | Modelado | Cualquier `from sklearn.linear_model`, `from sklearn.ensemble`, `from sklearn.svm`, `from xgboost`, `import torch`, etc. |
 | Validación | `cross_val_score`, `GridSearchCV`, `RandomizedSearchCV`, `precision_recall_curve`, `mean_squared_error` con intención de reportar |
 
-Excepción: el script de **ingesta** (`01_ingest.py`) y el de **EDA** (`02_eda.py`) no requieren diseño previo. EDA *informa* el diseño de FE, no al revés.
+Excepción: el script de **ingesta** (`01_ingest.py`) no requiere diseño previo. El script de **EDA** (`02_eda.py`) puede ejecutarse con la nota 00 en estado pre-EDA (preguntas e hipótesis); la nota 00 debe quedar **completa** antes de iniciar `notes/01_design_fe.md`.
 
 ---
 
@@ -151,7 +186,7 @@ Cada documento de diseño debe **dejar rastro** en el código que produce:
   """
   ```
 
-- La Model Card publicada en HF Hub debe incluir una sección "Fundamento Teórico" que **resuma** los tres documentos de diseño con sus citas. Las citas en la Model Card son consecuencia del diseño, no su origen.
+- La Model Card publicada en HF Hub debe incluir una sección "Fundamento Teórico" que **resuma** los cuatro documentos de diseño (00 EDA, 01 FE, 02 modelado, 03 validación) con sus citas. Las citas en la Model Card son consecuencia del diseño, no su origen.
 
 - Los `notes/*.md` se versionan junto con el código (no van a `.gitignore`). Son parte de la entrega del proyecto.
 
@@ -190,6 +225,68 @@ Para evitar tanto la pobreza (consultar 1 vez para todo) como el exceso (consult
 - **Máximo razonable**: 1 consulta por decisión real de la sección 2. Si hay 8 decisiones, son 8 consultas.
 - Las consultas deben preferir `cite_foundation` cuando se quiere fundamentación lista para integrar; `search_theory` para exploración; `get_section` cuando ya se tiene la referencia exacta.
 - Nunca pegar bloques largos del libro. Las paráfrasis son ≤30 palabras por fragmento (compliance con la licencia y mejor para el lector).
+
+---
+
+## Plantilla mínima de `notes/00_design_eda.md`
+
+EDA usa una plantilla **bipartita**: una parte se llena *al inicio* (preguntas e hipótesis), la otra *al cierre* (hallazgos y puente a FE). Las cinco secciones de la Regla 2 siguen vigentes pero adaptadas al carácter exploratorio.
+
+```markdown
+# Diseño y hallazgos del EDA: <proyecto>
+
+> **Estado**: [ ] pre-EDA · [ ] EDA en curso · [ ] cerrado (puente a FE listo)
+
+## 1. Contexto del problema
+- Problema: <regresión|clasificación binaria|...>.
+- Dataset: <n> filas × <p> features. Fuente y fecha de captura.
+- Target: <nombre>. ¿Qué representa? ¿Cómo se midió?
+- Métrica de éxito esperada por el usuario.
+- Restricciones (cómputo, interpretabilidad, latencia).
+
+## 2. Preguntas guía e hipótesis (PRE-EDA)
+Llenar antes de codificar `02_eda.py`. Una pregunta por punto, formato R4DS:
+- **Variación**: ¿Cómo se distribuye el target? ¿Hay sesgo, multimodalidad, ceros estructurales?
+- **Variación**: ¿Qué predictores parecen tener varianza casi nula?
+- **Covariación**: ¿Qué predictores correlacionan fuerte con el target? ¿Entre sí?
+- **Covariación**: ¿Hay interacciones esperadas por dominio?
+- **Calidad**: ¿Hay nulos disfrazados (-1, 9999, 0)? ¿Patrón de missingness?
+- **Outliers**: ¿Qué valores extremos podrían ser errores vs. casos genuinos?
+- Hipótesis del dominio (1-3): "espero que X tenga relación monotónica con Y porque ...".
+
+## 3. Consultas al RAG (al cerrar el EDA)
+Anclar los hallazgos relevantes para FE. Una subsección por hallazgo accionable:
+
+### Hallazgo 1: <título corto>
+- **Observación**: <qué se vio en el EDA, con número/figura>.
+- **Query**: literal del query enviado a `search_theory` / `cite_foundation` / `get_section`.
+- **Fragmentos**: 1-2 paráfrasis breves (≤30 palabras) con cita `[ESL §X.Y]` / `[ISLP §X.Y]` / `[FES Cap. X]` / `[R4DS §X.Y]`.
+- **Implicación para FE/modelado**: una oración accionable.
+
+### Hallazgo 2: ...
+
+## 4. Implicaciones para el código (puente a FE)
+Tabla de hallazgos → decisiones que entrarán en `notes/01_design_fe.md`:
+
+| Hallazgo | Decisión que dispara en FE | Sección de `01_design_fe.md` |
+|---|---|---|
+| Skew del target = 2.3 | Evaluar `log1p(y)` | Decisión 1 |
+| Multicolinealidad `X1`-`X2` > 0.9 | Eliminar `X2` o usar Ridge | Decisión 5 + Decisión modelado |
+| 8% de missings en `Z` no aleatorios | Imputar con flag `Z_was_missing` | Decisión 7 |
+| Categorías con < 1% en `cat_var` | Lump a "Otro" | Decisión 4 |
+
+## 5. Riesgos identificados
+- Sesgo de selección sospechado (¿cómo se muestreó el dataset?).
+- Leakage potencial (variables que solo existen post-evento).
+- Drift temporal si hay variable de fecha.
+- Outliers cuya eliminación podría destruir señal.
+
+## Artefactos producidos
+- `outputs/figures/distributions.png`
+- `outputs/figures/outliers_boxplots.png`
+- `outputs/figures/correlation_matrix.png`
+- `outputs/reports/eda_report.json`
+```
 
 ---
 

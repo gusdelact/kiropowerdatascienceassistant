@@ -36,7 +36,7 @@ el agente DEBE haber:
 
 **Modo degradado** (RAG no responde): producir `notes/01_design_fe.md` igual con cabecera "⚠️ Sin verificación bibliográfica" — ver `theory-driven-design.md` §Regla 7. NO inventar citas a ESL/ISLP.
 
-> Nota sobre EDA: la fase 2 (EDA) está exenta de este protocolo por la excepción explícita en `theory-driven-design.md` §Regla 4 — EDA *informa* el diseño de FE, no al revés. Los hallazgos del EDA (skew del target, multicolinealidad, desbalance, categorías raras) son los **insumos** que disparan las queries de esta fase.
+> Nota sobre EDA: la fase 2 (EDA) tiene su propio documento `notes/00_design_eda.md` con timing bipartito (pre-EDA y al cierre), descrito en `workflow-eda.md` §"Posición en el protocolo Theory-Driven Design" y `theory-driven-design.md` §Regla 1. Los hallazgos del EDA quedan anclados al RAG en la nota 00 y la tabla "Implicaciones para el código" de esa nota es el **input directo** de las queries y decisiones de la nota 01.
 
 ---
 
@@ -437,6 +437,8 @@ def create_interaction_features(df, col_a, col_b):
 - **Multicolinealidad detectada en EDA** → en este paso eliminas features o aplicas Ridge/Elastic Net (consulta `rag-books-mcp` con query `"multicollinearity ridge regression VIF"`, ver `theory-rag-guide.md`)
 - **Distribución sesgada del target** → considerar `np.log1p(y)` antes de modelar regresión
 - **Selección por Information Gain** → coincide con `feature_importances_` de árboles (consulta `rag-books-mcp` con `cite_foundation(topic="feature importance impurity decrease")`, ver `theory-rag-guide.md`)
+- **Categóricas con muchos niveles raros** → R4DS §15 (factors) recomienda reagrupar con `fct_lump`/`fct_other`. En pandas el equivalente es: detectar niveles con `value_counts(normalize=True) < umbral`, mapearlos a un `"Other"` antes de encoding. Consulta `rag-books-mcp` con `search_theory(query="factor lump small categories", book="r4ds")`. **Importante**: cita el principio, no copies código R.
+- **Diseño de transformaciones de variables numéricas** → R4DS §6 (data-transform) ofrece la mentalidad "una operación por línea, encadenada"; en pandas se traduce a un `Pipeline` o a `df.assign()` encadenados. Cuando documentes el diseño en `notes/01_design_fe.md`, puedes apoyarte en R4DS para el *flujo* y en FES para el *qué transformar*.
 
 ## Consultar Documentación
 

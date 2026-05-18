@@ -32,17 +32,25 @@ El agente NO debe memorizar teoría; debe **consultarla en tiempo de uso** cuand
 >
 > Cuando cites R4DS, **parafrasea la idea** y muestra el equivalente Python. Nunca pegues código R como solución al usuario.
 
-## Limitación de R4DS en el HF Space (v2)
+## R4DS está disponible en todos los modos (desde v2.2.0)
 
-R4DS está bajo **CC BY-NC-ND 3.0 US** (NoDerivatives). Por esa razón solo está indexado para uso local:
+Desde la versión `v2.2.0` del dataset RAG (tag HF correspondiente),
+**R4DS está incluido tanto en local (stdio) como en el Space público y en el
+dataset HF**. La razón: este Power se usa en un contexto académico, y la
+indexación se considera uso educativo no comercial con atribución explícita
+a Wickham, Çetinkaya-Rundel y Grolemund.
 
-- **v1 (`mcp-servers/rag-books-mcp/`, stdio)**: R4DS **disponible**. La colección `r4ds_chapters` vive en el `chroma_db/` del repo y no se redistribuye fuera de tu equipo.
-- **v2 (`mcp-servers/rag-books-mcp-v2/`, HF Space + dataset HF Hub)**: R4DS **disponible solo si el server lee `chroma_db/` local** (vía `RAG_CHROMA_DIR`). El script `publish_chroma_dataset.py` está configurado para **excluir las colecciones marcadas `local_only=True`** antes de subir al Hub, por lo que el Space público de v2 **NO** contiene R4DS.
+Implicaciones prácticas para el agente:
 
-Consecuencia práctica para el agente:
-
-- Si el usuario está conectado a v1 (stdio local) o a v2 con `RAG_CHROMA_DIR` apuntando a su `chroma_db/` reciente, `search_theory(book="r4ds", ...)` y `book="all"` incluirán R4DS sin problema.
-- Si el usuario está conectado al Space público de v2, `search_theory(book="r4ds", ...)` devolverá vacío. Cuando esto ocurra, el agente debe explicar la situación con una sola frase ("R4DS no se publica en el Space por su licencia ND, está disponible si corres el RAG localmente") y continuar con los otros libros.
+- `search_theory(book="r4ds", ...)` y `book="all"` siempre incluirán R4DS,
+  independientemente de si el usuario está conectado a v1, v2 con dataset, o
+  v2 con `RAG_CHROMA_DIR` local.
+- Si en algún momento el dataset se pinea a la revisión `v2.1.0` o anterior,
+  R4DS no aparecerá. En ese caso, el agente debe declararlo explícitamente y
+  continuar con los otros libros.
+- **R4DS sigue estando en R/tidyverse.** El cliente MCP (este Power) debe
+  presentar el código resultante en pandas/seaborn, nunca copiar el código R
+  como solución.
 
 ## Cuándo consultar el RAG (triggers)
 
@@ -104,6 +112,9 @@ Activa el RAG **antes de escribir o modificar código de entrenamiento** cuando 
 | Decidir el flujo iterativo del EDA (preguntas → viz → refinar) | `cite_foundation` | `topic="exploratory data analysis iterative cycle questions"` |
 | Justificar cuándo usar `geom_histogram` / `geom_freqpoly` (vs scatter/box) | `search_theory` | `"histogram boxplot covariation continuous categorical"`, `book="r4ds"` |
 | Decidir si una variable categórica con muchos niveles necesita reagruparse | `search_theory` | `"factor lump small categories rare"`, `book="r4ds"` |
+| `variance_inflation_factor(...)` de statsmodels (multicolinealidad en EDA/FE) | `cite_foundation` | `topic="variance inflation factor multicollinearity"` |
+| `smf.ols(...).fit().summary()` para tabla inferencial en informe | `search_theory` | `"OLS inference confidence intervals interpretation"` |
+| `adfuller / kpss` sobre serie temporal | `search_theory` | `"stationarity test ADF KPSS time series"` |
 
 > Esta tabla es una guía, no una camisa de fuerza. Si tu decisión no aparece, formula el query tú mismo siguiendo el patrón.
 

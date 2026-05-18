@@ -6,21 +6,36 @@
 
 ## 📌 Posición en el protocolo Theory-Driven Design
 
-EDA está **exento** del protocolo de `theory-driven-design.md`: NO requiere un `notes/0N_design_*.md` previo y NO exige consultas obligatorias al RAG antes de codificar `02_eda.py`. La razón está en `theory-driven-design.md` §Regla 4 (excepciones): "EDA *informa* el diseño de FE, no al revés."
+EDA tiene un régimen **especial** dentro de `theory-driven-design.md`: produce su propio documento `notes/00_design_eda.md`, pero con **timing bipartito** distinto al de las demás fases.
 
-Lo que sí se espera del EDA respecto al RAG:
+- **Antes** de codificar `02_eda.py`: crear `notes/00_design_eda.md` en estado *pre-EDA* con las secciones 1 (Contexto) y 2 (Preguntas guía e hipótesis). No se exigen consultas al RAG todavía.
+- **Durante** el EDA: ejecutar `02_eda.py`, generar figuras y `outputs/reports/eda_report.json`, registrar hallazgos.
+- **Al cerrar** el EDA, antes de iniciar `notes/01_design_fe.md`: completar las secciones 3 (Consultas al RAG), 4 (Implicaciones / puente a FE) y 5 (Riesgos) de la nota 00. Esta es la transición que **bloquea** la fase de FE si no está cumplida.
 
-- **Salida obligatoria**: el `outputs/reports/eda_report.json` y las observaciones cualitativas (skew del target, multicolinealidad, desbalance, categorías raras, outliers) son los **insumos** que dispararán las consultas al RAG en la siguiente fase (Feature Engineering, ver `workflow-feature-engineering.md` §"ANTES DE CODIFICAR").
-- **Consulta puntual permitida (no obligatoria)**: si durante el EDA detectas un patrón que claramente cambia decisiones aguas abajo (ej. multicolinealidad > 0.9 entre varias variables, skew > 2 en el target, desbalance < 5% para la minoritaria), puedes hacer una consulta acotada al RAG para anclar la observación. Esa consulta NO sustituye a las queries obligatorias de la fase de FE — solo las prepara.
+La diferencia con FE/Modelado/Validación es que en aquellas fases el RAG va *antes del código* porque las decisiones son a priori. En EDA las decisiones son *a posteriori* del descubrimiento: las consultas al RAG anclan los hallazgos en teoría y los traducen en decisiones para FE.
 
 Resumen rápido:
 
 | Pregunta | Respuesta |
 |---|---|
-| ¿Necesito `notes/00_design_eda.md`? | No, no existe. |
-| ¿Debo consultar el RAG antes de escribir `02_eda.py`? | No es obligatorio. |
-| ¿Puedo consultar el RAG durante el EDA? | Sí, puntualmente, cuando un hallazgo amerite anclaje teórico. |
-| ¿Qué disparará las consultas obligatorias al RAG? | Los hallazgos del EDA, al iniciar la fase de FE. |
+| ¿Necesito `notes/00_design_eda.md`? | **Sí**, con timing bipartito (pre-EDA y al cierre). |
+| ¿Debo consultar el RAG antes de escribir `02_eda.py`? | No. Las consultas se hacen al cerrar el EDA, sobre los hallazgos. |
+| ¿Puedo consultar el RAG durante el EDA? | Sí, puntualmente, cuando un hallazgo amerite anclaje teórico inmediato. |
+| ¿Qué bloquea la transición a FE? | Que `notes/00_design_eda.md` esté en estado **cerrado** (secciones 1-5 completas). |
+
+Plantilla y estructura mínima en `theory-driven-design.md` §"Plantilla mínima de `notes/00_design_eda.md`".
+
+### Consultas obligatorias al cerrar el EDA
+
+Cuando completes la sección 3 de la nota 00, debes haber consultado el RAG sobre todos los hallazgos accionables que dispararán decisiones aguas abajo. Las temáticas mínimas (cuando aplican al dataset):
+
+- Disciplina del flujo iterativo (R4DS Cap. 10) — variación, covariación, qué tipos de pregunta hacer.
+- Lectura del target (skew, multimodalidad, ceros estructurales) y consecuencias para FE/modelado.
+- Outliers como descubrimiento vs. error (R4DS §10.4 + FES Cap. 6).
+- Multicolinealidad y su impacto en familias candidatas (ESL §3.4).
+- Patrones de missing data (MCAR / MAR / MNAR) y consecuencias (FES Cap. 8).
+
+Si el dataset no presenta una situación, declarar "no aplica" en la nota y omitir esa consulta.
 
 ---
 
@@ -49,6 +64,74 @@ El EDA nos ayuda a reducir el **error reducible** al:
 - Identificar las variables más informativas (reducir bias)
 - Detectar problemas que aumentarían la varianza (outliers, multicolinealidad)
 - Elegir transformaciones apropiadas (log, polinomios)
+
+---
+
+## Filosofía R4DS para EDA (Cap. 10)
+
+> Esta sección integra los principios de **R for Data Science, 2nd Ed.** (Wickham, Çetinkaya-Rundel, Grolemund) en el flujo. R4DS está escrito en R/tidyverse pero las ideas son agnósticas del lenguaje y se traducen 1-a-1 a pandas/seaborn. **Nunca generes código en R para el usuario**; usa R4DS para la disciplina del proceso, no para la sintaxis.
+
+### EDA es un estado mental, no una receta
+
+R4DS Cap. 10 insiste en que el EDA no es una checklist mecánica sino un **ciclo iterativo**:
+
+1. **Generar preguntas** sobre los datos.
+2. **Buscar respuestas** visualizando, transformando y modelando.
+3. **Refinar** las preguntas o generar nuevas a partir de lo aprendido.
+
+> "EDA is fundamentally a creative process. And like most creative processes, the key to asking quality questions is to generate a large quantity of questions." — R4DS §10.2
+
+Operacionalmente esto significa que cada bloque del flujo numerado de abajo (pasos 1-8) **no es un fin** sino un disparador de preguntas para el siguiente. Si el paso 3 muestra desbalance del target, el paso 4 deja de ser "clasificar todas las variables por igual" y se convierte en "qué variables segmentan mejor a la clase minoritaria".
+
+### Las dos preguntas centrales
+
+R4DS propone que toda pregunta de EDA cae en uno de dos tipos (§10.3):
+
+| Pregunta | En qué buscar |
+|---|---|
+| **Variación** dentro de una variable | Cómo varía el valor entre observaciones de la misma variable. |
+| **Covariación** entre variables | Cómo varían los valores de dos o más variables conjuntamente. |
+
+Esto es el norte que guía los pasos 5-8 del flujo numerado: paso 5 (distribuciones univariadas) responde a *variación*, pasos 6-8 (outliers, categorías raras, correlación) son distintas formas de *covariación*.
+
+### Heurística R4DS sobre valores inusuales
+
+R4DS §10.4 distingue entre:
+- **Outliers genuinos** (errores de medición, casos raros legítimos): investigar antes de actuar.
+- **Valores faltantes disfrazados** (`-1`, `9999`, `0` como marcador): renombrar a `NaN` antes de modelar.
+
+Antes de aplicar el clipping IQR del paso 6, pregúntate: *¿este outlier representa un error o un caso real importante?* Si es lo segundo, el clipping puede destruir señal.
+
+### Tabla de equivalencias tidyverse → pandas/seaborn
+
+R4DS escribe su flujo en R; tu código debe estar en Python. Esta tabla cubre los patrones más usados en EDA:
+
+| R / tidyverse | Python / pandas + seaborn |
+|---|---|
+| `df %>% filter(x > 0)` | `df[df["x"] > 0]` |
+| `df %>% mutate(z = x + y)` | `df.assign(z=df["x"] + df["y"])` |
+| `df %>% group_by(g) %>% summarise(m = mean(x))` | `df.groupby("g")["x"].mean()` |
+| `df %>% count(var)` | `df["var"].value_counts()` |
+| `ggplot(df, aes(x)) + geom_histogram()` | `sns.histplot(data=df, x="x")` |
+| `ggplot(df, aes(x, y)) + geom_point()` | `sns.scatterplot(data=df, x="x", y="y")` |
+| `ggplot(df, aes(x, fill=cat)) + geom_bar()` | `sns.countplot(data=df, x="x", hue="cat")` |
+| `ggplot(df, aes(cat, y)) + geom_boxplot()` | `sns.boxplot(data=df, x="cat", y="y")` |
+| `geom_freqpoly(aes(color=cat))` | `sns.histplot(..., hue="cat", element="step", stat="density")` |
+| `cor(df %>% select_if(is.numeric))` | `df.select_dtypes("number").corr()` |
+
+### Cuándo consultar R4DS via el RAG durante EDA
+
+Las consultas obligatorias se hacen al **cerrar** el EDA (sección anterior). Durante el EDA en sí, estas son consultas naturales si quieres anclar una decisión sobre la marcha:
+
+| Situación | Query sugerida | Tool |
+|---|---|---|
+| Iniciar EDA y dudar qué mirar primero | `"exploratory data analysis variation covariation"` con `book="r4ds"` | `search_theory` |
+| Decidir si un outlier es genuino o ruido | `"unusual values outliers investigate"` con `book="r4ds"` | `search_theory` |
+| Identificar nulos disfrazados | `"missing values implicit explicit recode"` con `book="r4ds"` | `search_theory` |
+| Elegir entre histograma / freqpoly / boxplot para covariación | `"histogram boxplot covariation continuous categorical"` con `book="r4ds"` | `search_theory` |
+| Reagrupar categorías raras | `"factor lump small categories"` con `book="r4ds"` | `search_theory` |
+
+> Cuando integres una cita de R4DS en un comentario o reporte: parafrasea la idea, atribuye a Wickham et al., y muestra el equivalente en pandas. Nunca pegues el código R como solución.
 
 ---
 
@@ -365,12 +448,57 @@ def save_figure(fig, path, dpi=150):
 
 ---
 
+## Stack estadístico para EDA: pandas + seaborn + scipy.stats
+
+El stack base del EDA en este power es **pandas + numpy + seaborn/matplotlib + `scipy.stats`**. Cubre el 90% de las necesidades:
+
+- Distribuciones (`describe`, `value_counts`, `hist`, `kde`, `boxplot`).
+- Asociación entre numéricas (`pearsonr`, `spearmanr`, `kendalltau`).
+- Asociación entre categóricas (`chi2_contingency`).
+- Comparaciones entre grupos (`ttest_ind`, `mannwhitneyu`, `ks_2samp`).
+- Tests de normalidad (`shapiro`, `normaltest`).
+
+`scipy.stats` viene como dependencia transitiva del stack, así que **no añade peso** al entorno. Úsalo libremente durante el EDA cuando necesites una prueba puntual; cita el resultado en `notes/00_design_eda.md` solo si dispara una decisión aguas abajo.
+
+### Cuándo subir de `scipy.stats` a `statsmodels` (opt-in)
+
+`statsmodels` es una dependencia adicional **opcional**, justificable solo cuando aporta algo que el stack base no cubre. Tres triggers concretos:
+
+1. **Series de tiempo**: ADF / KPSS para estacionariedad, descomposición STL, ACF/PACF, ARIMA/SARIMAX. `scipy` no cubre esto y es el caso más claro de inclusión.
+2. **VIF (multicolinealidad)** cuando el EDA detecta correlaciones > 0.85 entre varias features y la nota 00 quiere fundamentar la decisión "eliminar feature vs. usar Ridge/ElasticNet" antes de pasar a FE. La función relevante es `statsmodels.stats.outliers_influence.variance_inflation_factor`.
+3. **Inferencia formal** cuando el entregable lo exige (informes regulados, académicos, salud): `smf.ols(...).fit().summary()` para tabla con coeficientes, errores estándar, p-values, IC, AIC/BIC, condition number. sklearn no entrega eso porque su foco es predicción, no inferencia.
+
+Reglas operativas si entra `statsmodels`:
+
+- Convive con `scikit-learn`, **no lo reemplaza**: sklearn lleva la predicción y el deploy a HF Spaces; `statsmodels` emite la inferencia como artefacto auxiliar dentro del EDA o de la nota 00.
+- No uses `statsmodels` para hacer hypothesis testing sobre el dataset completo y luego seleccionar features con esos resultados: eso es leakage sutil. Las decisiones de FE/modelado se justifican vía RAG (ESL/ISLP), no vía p-values del train.
+- Si la única razón es "quiero ver `summary()`", no añadas la dependencia: usa `scipy.stats.linregress` o `seaborn.regplot` con `ci=95`, son suficientes para EDA.
+- Documenta la inclusión en `pyproject.toml` con justificación corta en el PR/commit (qué trigger de los tres dispara la dependencia).
+
+### Tabla rápida: qué usar para qué
+
+| Necesidad en EDA | Herramienta |
+|---|---|
+| Resumen estadístico básico | `df.describe()` |
+| Conteos y frecuencias | `df["x"].value_counts(normalize=True)` |
+| Correlación numérica | `df.corr()` o `scipy.stats.pearsonr` / `spearmanr` |
+| Asociación categórica | `scipy.stats.chi2_contingency` |
+| Comparar dos grupos numéricos | `scipy.stats.ttest_ind` / `mannwhitneyu` |
+| Normalidad | `scipy.stats.shapiro` / `normaltest` |
+| Regresión visual rápida | `sns.regplot(...)` |
+| Multicolinealidad (VIF) | `statsmodels.stats.outliers_influence.variance_inflation_factor` (opt-in) |
+| Estacionariedad / series de tiempo | `statsmodels.tsa.stattools.adfuller` / `kpss` (opt-in) |
+| Tabla inferencial completa de OLS | `statsmodels.formula.api.ols(...).fit().summary()` (opt-in) |
+
+---
+
 ## Gotchas Comunes
 
 - **No eliminar outliers en EDA** — solo identificarlos. El tratamiento (clipping) va en Feature Engineering.
 - **No imputar nulos en EDA** — solo cuantificar. La imputación va en Feature Engineering DESPUÉS del split.
 - **No transformar variables en EDA** — solo describir. Las transformaciones van en Feature Engineering.
 - **Variables categóricas codificadas como int** — son categóricas aunque pandas las infiera como numéricas.
+- **No hacer hypothesis testing sobre todo el dataset para seleccionar features** — los p-values calculados sobre el conjunto completo y luego usados para filtrar features son una forma sutil de leakage. La selección de features se decide en FE con justificación teórica (RAG), no con tests del EDA.
 
 ## Consultar Documentación
 
@@ -383,4 +511,9 @@ Para Gradio usa el server MCP `gradio` (no la web genérica).
 
 ## Siguiente paso
 
-Una vez completado el EDA, el siguiente paso es Feature Engineering. Ver `workflow-feature-engineering.md`.
+Una vez completado el EDA:
+
+1. Cierra `notes/00_design_eda.md` (secciones 3-5: consultas al RAG sobre los hallazgos, tabla de implicaciones para FE, riesgos). La plantilla está en `theory-driven-design.md`.
+2. Solo entonces inicia `notes/01_design_fe.md` y la fase de Feature Engineering (`workflow-feature-engineering.md`).
+
+La nota 00 es el **puente formal** entre exploración y diseño: cada hallazgo accionable del EDA debe convertirse en una fila de la tabla "Implicaciones para el código" que disparará una decisión concreta en la nota 01.
