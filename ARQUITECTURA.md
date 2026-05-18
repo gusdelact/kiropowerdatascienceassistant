@@ -1,400 +1,300 @@
-# Data Science Assistant — Arquitectura del Power
-
-**Autor**: Gustavo De la Cruz Tovar
-**Licencia**: Apache 2.0
-
----
-
-## ¿Qué es este Power?
-
-El **Data Science Assistant** es un Kiro Power que guía la construcción de aplicaciones de ciencia de datos de principio a fin. No es una librería ni un framework — es un conjunto de documentación, workflows y conexiones a servicios externos (MCP servers) que le enseñan al asistente de IA cómo estructurar, generar y desplegar proyectos de datos de forma profesional y reproducible.
+# Arquitectura del Power: Data Science Assistant
 
 ## Estructura del Power
 
 ```
 data-science-assistant/
 ├── POWER.md                                # Documento principal: principios, arquitectura, referencia
-├── mcp.json                                # Configuración de 4 MCP servers
-└── steering/                               # Guías detalladas por workflow
-    ├── eda-feature-engineering.md           # EDA y Feature Engineering
-    ├── model-training-validation.md         # Entrenamiento y validación
-    ├── kaggle-workflows.md                  # Ingesta y publicación en Kaggle
-    ├── gradio-interfaces.md                # Dos apps Gradio (training + inference)
-    └── mlops-deployment.md                 # Pipelines, despliegue a HF Spaces
+├── mcp.json                                # Configuración de 2 MCP servers (Gradio Docs, RAG Books)
+├── ARQUITECTURA.md                         # Este archivo
+├── README.md                               # Guía de instalación y uso
+├── rag-books-mcp/                          # MCP Server independiente (referenciado, no embebido)
+│   # Soporta DOS variantes (mismas tools, distinto transporte):
+│   #  A) HF Space (Gradio + mcp_server=True)  → URL pública, default recomendado
+│   #  B) Git repo local (FastMCP por stdio)   → uso offline / auditoría
+│   ├── pyproject.toml                      # Dependencias del server (chromadb, sentence-transformers, mcp, gradio[mcp])
+│   ├── README.md                           # Documentación del RAG server con ambas variantes
+│   ├── deploy_to_hf_space.py               # Despliegue al Space (variante A)
+│   ├── hf-space/                           # Artefactos que sube el deploy (app.py, README.md, requirements.txt)
+│   ├── rag_books_mcp/                      # Código fuente
+│   │   ├── __init__.py
+│   │   ├── tools.py                        # Lógica de las 4 tools (fuente única de verdad)
+│   │   ├── server.py                       # Variante B · MCP Server stdio (FastMCP)
+│   │   ├── app.py                          # Variante A · Gradio + mcp_server=True
+│   │   └── ingest.py                       # Script de re-vectorización (opcional)
+│   └── chroma_db/                          # Base vectorial pre-construida (41 MB, 1977 chunks)
+│       ├── chroma.sqlite3                  # Metadata y documentos
+│       └── [colecciones HNSW]              # Índices: esl_chapters, islp_chapters
+└── steering/
+    # Workflow (cómo ejecutar cada fase)
+    ├── workflow-eda.md                      # Guía de Análisis Exploratorio
+    ├── workflow-feature-engineering.md      # Feature Engineering, split, scaling, encoding
+    ├── workflow-model-training.md           # Flujo común de entrenamiento (SMOTE, CV, GridSearch)
+    ├── workflow-validation.md               # Métricas, calibración del umbral, benchmarking
+    # Modelos por familia (heurísticas específicas)
+    ├── models-linear-regression.md          # OLS, Ridge, Lasso, ElasticNet
+    ├── models-trees-rf.md                   # Decision Trees, Random Forest, ExtraTrees
+    ├── models-ensemble.md                   # Bagging, Boosting (XGBoost), Stacking
+    ├── models-svm.md                        # LinearSVC, SVC kernels, OneClassSVM
+    # Teoría (manual + protocolo)
+    ├── theory-rag-guide.md                  # Cómo invocar rag-books-mcp (tools, citas, degradado)
+    ├── theory-driven-design.md              # Protocolo: notes/0N_design_*.md ANTES de codificar
+    # Infraestructura
+    ├── huggingface-workflows.md             # Ingesta desde HF, publicación de datasets y modelos
+    ├── gradio-interfaces.md                 # Dos apps Gradio: results (dashboard local) e inference (HF Spaces)
+    ├── mlops-deployment.md                  # Despliegue a HF Spaces con CLI hf, estructura con uv
+    ├── matplotlib-headless.md               # Backend Agg, persistencia de figuras a outputs/figures/
+    └── notebooks-ds.md                      # Notebooks autocontenidos para Colab (badge, uv, model_info.json)
 ```
 
-### POWER.md
-Documento central que define los principios obligatorios del Power:
-- Uso exclusivo de `uv` y `uvx` para gestión de entornos y paquetes
-- Arquitectura modular de 8 scripts independientes
-- Intervención humana entre cada etapa
-- Dataset de Kaggle explícito como requisito previo
-- Licenciamiento Apache 2.0 para todo artefacto publicado
-- Estructura de directorios estándar para todo proyecto
+## Visión General
 
-### mcp.json
-Configura cuatro MCP servers que el Power utiliza:
+Este power orquesta el ciclo de vida completo de un proyecto de ciencia de datos usando **Hugging Face Hub** como plataforma central y el **CLI `hf`** como herramienta de interacción. No depende de MCP servers para operaciones con la plataforma — los MCP incluidos sirven para consultar documentación oficial (Gradio Docs) y para fundamentar decisiones con teoría (RAG Books sobre ESL/ISLP). La búsqueda web general se hace con las herramientas incorporadas del agente.
 
-| MCP Server | Función |
-|------------|---------|
-| **Tavily** | Consulta documentación actualizada de pandas, numpy, sklearn, TensorFlow, PyTorch, etc. |
-| **Kaggle** | Buscar/descargar datasets, publicar datasets curados y modelos entrenados |
-| **Hugging Face** | Buscar modelos/datasets/Spaces, consultar docs de HF, gestionar Spaces |
-| **Gradio Docs** | Documentación oficial de Gradio con schemas exactos de componentes |
-
-### Steering Files
-Guías detalladas que el asistente carga bajo demanda según la etapa en la que se encuentre el usuario. Cada archivo contiene código de referencia, patrones y gotchas para una fase específica del pipeline.
-
----
-
-## Arquitectura de una Aplicación de Datos
-
-El Power implementa una arquitectura de **dos etapas** con **dos aplicaciones** separadas:
-
-### Etapa 1: Entrenamiento (local)
-
-El científico de datos ejecuta un pipeline secuencial de 7 pasos. Cada paso es un script independiente que produce artefactos. Entre cada paso hay un punto de intervención humana donde se revisan resultados y se ajustan parámetros.
-
-```mermaid
-flowchart TD
-    subgraph ETAPA1["🏋️ ETAPA 1: ENTRENAMIENTO (ejecución local con uv)"]
-        direction TB
-        A["📥 01_ingest.py\nKaggle → data/raw/"] -->|"👤 Revisar datos"| B["📊 02_eda.py\nfiguras, reporte estadístico"]
-        B -->|"👤 Decidir columnas y transformaciones"| C["⚙️ 03_feature_engineering.py\ndata/raw/ → data/processed/\npreprocessor.joblib"]
-        C -->|"👤 Verificar features"| D["🧠 04_train.py\ndata/processed/ → model.joblib"]
-        D -->|"👤 Revisar metadata"| E["✅ 05_validate.py\nConfusion Matrix, ROC, R²\nmétricas en JSON"]
-        E -->|"👤 ¿Métricas aceptables?"| F["📦 06_publish_dataset.py\nDataset curado → Kaggle\n+ DATA_CARD.md"]
-        F -->|"👤 Completar Data Card"| G["📦 07_publish_model.py\nModelo → Kaggle\n+ MODEL_CARD.md"]
-    end
-
-    style ETAPA1 fill:#f0f4ff,stroke:#4a6fa5,stroke-width:2px
-    style A fill:#e8f5e9,stroke:#2e7d32
-    style B fill:#fff3e0,stroke:#ef6c00
-    style C fill:#e3f2fd,stroke:#1565c0
-    style D fill:#fce4ec,stroke:#c62828
-    style E fill:#f3e5f5,stroke:#6a1b9a
-    style F fill:#e0f2f1,stroke:#00695c
-    style G fill:#e0f2f1,stroke:#00695c
-```
-
-**Scripts y sus artefactos:**
-
-| Script | Entrada | Salida | Descripción |
-|--------|---------|--------|-------------|
-| `01_ingest.py` | Kaggle dataset ref | `data/raw/` | Descarga datos desde Kaggle sin modificar |
-| `02_eda.py` | `data/raw/` | `outputs/figures/`, `outputs/reports/` | Genera visualizaciones y reporte estadístico |
-| `03_feature_engineering.py` | `data/raw/` | `data/processed/`, `models/preprocessor.joblib` | Transforma datos, guarda preprocessor |
-| `04_train.py` | `data/processed/` | `models/model.joblib` | Entrena modelo, guarda serializado |
-| `05_validate.py` | `models/model.joblib`, `data/processed/` | `outputs/metrics/`, `outputs/figures/` | Confusion matrix, ROC, R², métricas |
-| `06_publish_dataset.py` | `data/processed/` | `cards/DATA_CARD.md` → Kaggle | Genera Data Card y publica dataset curado |
-| `07_publish_model.py` | `models/` | `cards/MODEL_CARD.md` → Kaggle | Genera Model Card y publica modelo |
-
-### Etapa 2: Inferencia (Hugging Face Spaces)
-
-La app de inferencia se despliega como un Space público en Hugging Face. Descarga el modelo directamente desde Kaggle y expone una interfaz web para predicciones.
-
-```mermaid
-flowchart LR
-    subgraph ETAPA2["🔮 ETAPA 2: INFERENCIA (Hugging Face Spaces)"]
-        direction LR
-        K["📦 Kaggle\nmodel.joblib\npreprocessor.joblib\nMODEL_CARD.md"] -->|"descarga al iniciar"| APP["🖥️ app_inference.py\nGradio UI"]
-        APP --> U["👤 Usuario final"]
-    end
-
-    subgraph TABS["Tabs de la App"]
-        T1["Predicción Individual\nFormulario → resultado"]
-        T2["Predicción por Lotes\nUpload CSV → resultados"]
-        T3["Info del Modelo\nTipo, features, fuente"]
-    end
-
-    APP --> TABS
-
-    subgraph DEPLOY["Despliegue"]
-        D["08_deploy_hf.py"] -->|"sube a"| HF["Hugging Face Spaces"]
-    end
-
-    style ETAPA2 fill:#fff8e1,stroke:#f9a825,stroke-width:2px
-    style K fill:#e0f2f1,stroke:#00695c
-    style APP fill:#e3f2fd,stroke:#1565c0
-    style U fill:#fce4ec,stroke:#c62828
-```
-
----
-
-## Visión General: Dos Etapas Conectadas
+## Diagrama de Arquitectura General
 
 ```mermaid
 flowchart TB
-    subgraph LOCAL["🖥️ Ejecución Local (Científico de Datos)"]
+    subgraph POWER["Data Science Assistant Power"]
         direction TB
-        INGEST["01_ingest.py"] --> EDA["02_eda.py"]
-        EDA --> FE["03_feature_eng.py"]
-        FE --> TRAIN["04_train.py"]
-        TRAIN --> VAL["05_validate.py"]
-        VAL --> PUB_DS["06_publish_dataset.py"]
-        VAL --> PUB_MOD["07_publish_model.py"]
+        PM["POWER.md\nPrincipios + Config"]
+        MCP["mcp.json\n2 MCP Servers"]
+        ST["steering/\n15 guías:\n4 workflow + 4 models\n+ 2 theory + 5 infra"]
+        RAG["rag-books-mcp/\nMCP Server autocontenido\nChromaDB con ESL+ISLP\n(1977 chunks, 41MB)"]
     end
 
-    subgraph KAGGLE["☁️ Kaggle (Repositorio Central)"]
-        DS_CURADO["Dataset Curado\n+ DATA_CARD.md\nApache 2.0"]
-        MODELO["Modelo Entrenado\n+ MODEL_CARD.md\n+ preprocessor\nApache 2.0"]
+    subgraph MCPS["MCP Servers"]
+        direction LR
+        GRD["Gradio Docs MCP\nSchemas de componentes\n(externa)"]
+        RBM["RAG Books MCP\nESL + ISLP\n(local, autocontenido)"]
     end
 
-    subgraph HF["☁️ Hugging Face Spaces"]
-        APP_INF["app_inference.py\nGradio UI\nPredicción individual y lotes"]
+    subgraph TOOLS["Herramientas CLI"]
+        direction LR
+        UV["uv\nGestor de paquetes\ny entornos virtuales"]
+        HF["hf CLI\nInteracción con\nHugging Face Hub"]
     end
 
-    KAGGLE_SRC["☁️ Kaggle\nDataset Original"] -->|"01_ingest.py"| INGEST
-    PUB_DS -->|"publica"| DS_CURADO
-    PUB_MOD -->|"publica"| MODELO
-    MODELO -->|"descarga al iniciar"| APP_INF
-    DEPLOY["08_deploy_hf.py"] -->|"despliega"| APP_INF
-    APP_INF -->|"predicciones"| USUARIO["👤 Usuario Final"]
+    subgraph HUB["Hugging Face Hub"]
+        direction LR
+        DS["HF Datasets\nFuente y destino\nde datos"]
+        MD["HF Models\nModelos entrenados\npublicados"]
+        SP["HF Spaces\nApps de inferencia\ndesplegadas"]
+    end
 
-    style LOCAL fill:#f0f4ff,stroke:#4a6fa5,stroke-width:2px
-    style KAGGLE fill:#e0f2f1,stroke:#00695c,stroke-width:2px
-    style HF fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
-    style KAGGLE_SRC fill:#e8f5e9,stroke:#2e7d32
-    style USUARIO fill:#fce4ec,stroke:#c62828
+    POWER --> MCPS
+    POWER --> TOOLS
+    RAG -.-> RBM
+    TOOLS --> HUB
+
+    style POWER fill:#f0f4ff,stroke:#4a6fa5
+    style MCPS fill:#fff3e0,stroke:#e65100
+    style TOOLS fill:#e8f5e9,stroke:#2e7d32
+    style HUB fill:#e3f2fd,stroke:#1565c0
+    style RAG fill:#f3e5f5,stroke:#7b1fa2
 ```
 
----
+## Pipeline Completo por Etapas
+
+El pipeline se ejecuta como scripts independientes. Entre cada etapa hay un punto de intervención humana (👤) donde el científico de datos revisa artefactos y decide si avanzar.
+
+```mermaid
+flowchart TD
+    subgraph INGESTA["Etapa 1: Ingesta"]
+        A["📥 01_ingest.py\nhf download → data/raw/"]
+    end
+
+    subgraph ANALISIS["Etapas 2-3: Análisis y Transformación"]
+        B["📊 02_eda.py\n→ outputs/figures/"]
+        C["⚙️ 03_feature_engineering.py\n→ data/processed/"]
+    end
+
+    subgraph MODELO["Etapas 4-5: Modelo"]
+        D["🧠 04_train.py\n→ models/model.joblib"]
+        E["✅ 05_validate.py\n→ outputs/metrics/"]
+    end
+
+    subgraph PUBLICACION["Etapas 6-7: Publicación"]
+        F["📦 06_publish_dataset.py\nhf upload → HF Datasets"]
+        G["📦 07_publish_model.py\nhf upload → HF Models"]
+    end
+
+    subgraph DEPLOY["Etapa 8: Despliegue"]
+        H["🚀 08_deploy_hf.py\nhf upload → HF Spaces"]
+    end
+
+    subgraph NOTEBOOKS["Etapa 9: Notebooks Colab"]
+        I["📓 build_notebooks.py\nGenera 01_entrenamiento.ipynb\ny 02_inferencia.ipynb\n→ hf upload notebooks/*.ipynb\nal repo del modelo"]
+    end
+
+    A -->|"👤 Revisar datos"| B
+    B -->|"👤 Decidir transformaciones"| C
+    C -->|"👤 Verificar features"| D
+    D -->|"👤 Revisar metadata"| E
+    E -->|"👤 ¿Métricas OK?"| F
+    F -->|"👤 Completar Data Card"| G
+    G -->|"👤 Completar Model Card"| H
+    H -->|"👤 Sanity check del Space"| I
+
+    style INGESTA fill:#e8f5e9,stroke:#2e7d32
+    style ANALISIS fill:#fff3e0,stroke:#e65100
+    style MODELO fill:#f3e5f5,stroke:#6a1b9a
+    style PUBLICACION fill:#e3f2fd,stroke:#1565c0
+    style DEPLOY fill:#fce4ec,stroke:#b71c1c
+    style NOTEBOOKS fill:#ede7f6,stroke:#4527a0
+```
+
+## Flujo del Modelo: Entrenamiento → Publicación → Inferencia
+
+```mermaid
+flowchart LR
+    A["04_train.py\nmodels/model.joblib"] -->|"hf upload"| B["📦 HF Models\nFuente de verdad"]
+    B -->|"hf_hub_download\nal iniciar Space"| C["app_inference.py"]
+    D["08_deploy_hf.py\nhf upload --repo-type space"] --> E["🖥️ HF Spaces"]
+    C --> E
+    E -->|"predicciones"| F["👤 Usuario Final"]
+
+    style B fill:#e0f2f1,stroke:#00695c
+    style E fill:#e3f2fd,stroke:#1565c0
+```
+
+**HF Hub es el repositorio central del modelo.** La app de inferencia descarga el modelo desde HF Hub cada vez que el Space se inicia. Actualizar el modelo = reiniciar el Space = app actualizada.
 
 ## Dos Aplicaciones Gradio
 
-### App Training (`app_training/app_training.py`)
-
-- **Propósito**: Orquestar todo el pipeline de entrenamiento desde una interfaz visual
-- **Usuario**: Científico de datos, ingeniero de datos
-- **Ejecución**: Solo local — `uv run python app_training/app_training.py`
-- **Nunca se despliega** a producción
-
-La app tiene 7 tabs, uno por cada etapa del pipeline. El usuario ejecuta cada etapa secuencialmente, revisa los resultados en la misma interfaz, y decide cuándo avanzar.
-
-| Tab | Etapa | Qué hace |
-|-----|-------|----------|
-| 1️⃣ Ingesta | `01_ingest` | Descarga dataset de Kaggle |
-| 2️⃣ EDA | `02_eda` | Muestra distribuciones, correlaciones, faltantes |
-| 3️⃣ Feature Engineering | `03_feature_eng` | Configura y ejecuta transformaciones |
-| 4️⃣ Entrenamiento | `04_train` | Selecciona modelo, hiperparámetros, entrena |
-| 5️⃣ Validación | `05_validate` | Muestra confusion matrix, ROC, métricas |
-| 6️⃣ Publicar Dataset | `06_publish_ds` | Genera Data Card, prepara para Kaggle |
-| 7️⃣ Publicar Modelo | `07_publish_mod` | Genera Model Card, prepara para Kaggle |
-
-### App Inference (`app_inference/app_inference.py`)
-
-- **Propósito**: Exponer el modelo entrenado como servicio de predicción
-- **Usuario**: Usuario final (no técnico)
-- **Ejecución**: Hugging Face Spaces (público)
-- **Fuente del modelo**: Descarga desde Kaggle al iniciar
-
-La app tiene 3 tabs:
-
-| Tab | Qué hace |
-|-----|----------|
-| Predicción Individual | Formulario con inputs → predicción con probabilidades |
-| Predicción por Lotes | Upload CSV → predicciones masivas → descarga resultados |
-| Información del Modelo | Tipo de modelo, features, fuente en Kaggle |
-
----
-
-## Rol de Kaggle y Hugging Face
-
-### Kaggle: Repositorio de Datos y Modelos
-
-Kaggle cumple dos funciones en esta arquitectura:
-
-**1. Fuente de datos (entrada)**
-- El pipeline comienza descargando un dataset de Kaggle (`01_ingest.py`)
-- El usuario DEBE proporcionar la referencia explícita: `usuario/nombre-dataset`
-
-**2. Repositorio de artefactos (salida)**
-- El dataset curado (resultado de Feature Engineering) se publica en Kaggle con una **Data Card**
-- El modelo entrenado se publica en Kaggle con una **Model Card**
-- Kaggle es la **fuente de verdad** del modelo: la app de inferencia lo descarga de ahí
-
 ```mermaid
-flowchart LR
-    subgraph ENTRADA["Kaggle como Fuente de Datos"]
-        DS_ORIG["📂 Dataset Original\nusuario/nombre-dataset"]
+flowchart TB
+    subgraph LOCAL["Ejecución Local"]
+        T["📊 APP RESULTS\napp_results/app_results.py\n\nDashboard de visualización (solo lectura):\n• Figuras del EDA\n• Hiperparámetros del modelo entrenado\n• Métricas y gráficas de validación\n\nUsuario: Científico de datos\nComando: uv run python app_results/app_results.py"]
     end
 
-    subgraph PIPELINE["Pipeline Local"]
-        P["Ingesta → EDA → FE\n→ Train → Validate"]
+    subgraph CLOUD["Hugging Face Spaces"]
+        I["🖥️ APP INFERENCE\napp_inference/app_inference.py\n\nPredicción individual y por lotes\nDescarga modelo de HF Hub al iniciar\n\nUsuario: Usuario final\nDeploy: hf upload user/app ./app_inference . --repo-type space"]
     end
 
-    subgraph SALIDA["Kaggle como Repositorio de Artefactos"]
-        DS_CUR["📦 Dataset Curado\n+ DATA_CARD.md\nApache 2.0"]
-        MOD["🧠 Modelo Entrenado\n+ MODEL_CARD.md\n+ preprocessor.joblib\n+ métricas\nApache 2.0"]
-    end
+    LOCAL -.->|"Modelo publicado\na HF Hub"| CLOUD
 
-    DS_ORIG -->|"01_ingest.py"| P
-    P -->|"06_publish_dataset.py"| DS_CUR
-    P -->|"07_publish_model.py"| MOD
-
-    style ENTRADA fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style PIPELINE fill:#f0f4ff,stroke:#4a6fa5,stroke-width:2px
-    style SALIDA fill:#e0f2f1,stroke:#00695c,stroke-width:2px
+    style LOCAL fill:#fff3e0,stroke:#e65100
+    style CLOUD fill:#e3f2fd,stroke:#1565c0
 ```
 
-### Hugging Face: Plataforma de Despliegue
+| Aspecto | App Results | App Inference |
+|---------|-------------|---------------|
+| Archivo | `app_results/app_results.py` | `app_inference/app_inference.py` |
+| Propósito | Visualizar EDA, hiperparámetros del modelo y métricas de validación | Predicción con modelo publicado |
+| Usuario | Científico/Ingeniero de datos | Usuario final |
+| Ejecución | `uv run python app_results/app_results.py` | `uv run python app_inference/app_inference.py` |
+| Despliegue | Solo local | HF Spaces (`hf upload`) |
+| Fuente de datos | Lee `outputs/figures/`, `outputs/metrics/`, `outputs/reports/` | Descarga modelo desde HF Hub |
+| Tabs | EDA, Modelo (hiperparámetros), Validación | Predicción individual, Lotes, Info |
+| ¿Ejecuta scripts? | No, solo visualiza artefactos generados por los scripts | No, solo predice |
 
-Hugging Face Spaces es donde se despliega la app de inferencia para el usuario final.
+## Estructura de un Proyecto Generado
 
-```mermaid
-flowchart LR
-    K["📦 Kaggle\nmodel.joblib\npreprocessor.joblib"] -->|"descarga al iniciar"| HF["🖥️ HF Spaces\napp_inference.py\nGradio UI"]
-    HF -->|"predicciones vía browser"| U["👤 Usuario Final"]
-
-    style K fill:#e0f2f1,stroke:#00695c
-    style HF fill:#fff3e0,stroke:#ef6c00
-    style U fill:#fce4ec,stroke:#c62828
+```
+mi-proyecto-ml/
+├── pyproject.toml              # Dependencias (gestionadas por uv)
+├── uv.lock                     # Lock file
+├── config.yaml                 # Configuración centralizada
+├── README.md                   # Documentación del proyecto
+│
+├── data/
+│   ├── raw/                    # Datos originales (NUNCA modificar)
+│   └── processed/              # Datos después de Feature Engineering
+│
+├── scripts/
+│   ├── 01_ingest.py            # hf download → data/raw/
+│   ├── 02_eda.py               # Análisis exploratorio → outputs/figures/
+│   ├── 03_feature_engineering.py  # Transformaciones → data/processed/
+│   ├── 04_train.py             # Entrenamiento → models/model.joblib
+│   ├── 05_validate.py          # Validación → outputs/metrics/
+│   ├── 06_publish_dataset.py   # hf upload → HF Datasets
+│   ├── 07_publish_model.py     # hf upload → HF Models
+│   ├── 08_deploy_hf.py         # hf upload → HF Spaces
+│   └── build_notebooks.py      # Genera notebooks/*.ipynb autocontenidos
+│
+├── notebooks/                  # Notebooks autocontenidos para Google Colab
+│   ├── 01_entrenamiento.ipynb  # Pipeline completo en Colab (badge "Open in Colab")
+│   └── 02_inferencia.ipynb     # Descarga modelo de HF Hub y predice
+│
+├── models/                     # Modelos serializados (.joblib + model_info.json)
+├── outputs/
+│   ├── figures/                # Gráficas de EDA y validación
+│   ├── metrics/                # Métricas en JSON
+│   └── reports/                # Reportes generados
+│
+├── cards/
+│   ├── DATA_CARD.md            # Data Card (README del dataset en HF)
+│   └── MODEL_CARD.md           # Model Card (README del modelo en HF)
+│
+├── app_results/                # APP 1: Dashboard local de resultados (EDA + modelo + validación)
+│   └── app_results.py
+│
+├── app_inference/              # APP 2: UI de inferencia (se despliega)
+│   ├── app_inference.py
+│   ├── requirements.txt
+│   └── README.md               # Metadata del Space (YAML frontmatter)
+│
+└── lib/                        # Funciones compartidas
+    ├── __init__.py
+    ├── data_utils.py
+    ├── feature_utils.py
+    ├── model_utils.py
+    └── plot_utils.py
 ```
 
-**Actualización del modelo**: Publicar nueva versión en Kaggle → reiniciar el Space → la app usa el modelo actualizado automáticamente. No se necesita re-desplegar.
+## Componentes del Power
 
----
+### MCP Servers (2) — Solo para documentación
 
-## Flujo Completo del Modelo
+| Server | Propósito | Ejemplo de uso |
+|--------|-----------|----------------|
+| **Gradio Docs** | Schemas de componentes Gradio | `search_gradio_docs(query="Slider parameters")` |
+| **RAG Books** (independiente) | Citas teóricas de ESL + ISLP | `cite_foundation(topic="bagging")` |
 
-```mermaid
-sequenceDiagram
-    participant CD as 👨‍🔬 Científico de Datos
-    participant LOCAL as 🖥️ Pipeline Local
-    participant KAGGLE as ☁️ Kaggle
-    participant HF as ☁️ HF Spaces
-    participant USER as 👤 Usuario Final
+> El servidor `rag-books-mcp` **no se incluye** en `mcp.json` del Power: es independiente y puede consumirse vía **HF Space (URL, default)** o **stdio local (uv)**. Ver `POWER.md` §"RAG sobre los Libros".
 
-    CD->>LOCAL: uv run python scripts/01_ingest.py
-    LOCAL->>KAGGLE: Descarga dataset original
-    KAGGLE-->>LOCAL: data/raw/
+Estos MCP NO interactúan con Hugging Face Hub. Toda operación con HF se hace vía CLI.
 
-    CD->>CD: 👤 Revisa datos, ajusta config.yaml
+### Herramientas CLI
 
-    CD->>LOCAL: uv run python scripts/02_eda.py
-    LOCAL-->>CD: Figuras, reporte estadístico
+| Herramienta | Instalación | Propósito |
+|-------------|-------------|-----------|
+| **uv** | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | Gestión de paquetes, entornos virtuales, ejecución de scripts |
+| **hf** | `brew install hf` | Descargar datasets, subir modelos, crear y desplegar Spaces |
 
-    CD->>CD: 👤 Decide columnas y transformaciones
+### Comandos HF CLI más usados
 
-    CD->>LOCAL: uv run python scripts/03_feature_engineering.py
-    LOCAL-->>CD: data/processed/, preprocessor.joblib
+```bash
+# Autenticación
+hf auth login                    # Login (una vez)
+hf auth whoami                   # Verificar sesión
 
-    CD->>CD: 👤 Verifica features
+# Datasets
+hf datasets ls --search "iris"   # Buscar
+hf download user/ds --repo-type dataset --local-dir ./data  # Descargar
+hf repos create user/ds --repo-type dataset                 # Crear repo
+hf upload user/ds ./data . --repo-type dataset              # Subir
 
-    CD->>LOCAL: uv run python scripts/04_train.py
-    LOCAL-->>CD: model.joblib
+# Modelos
+hf repos create user/modelo                                 # Crear repo
+hf upload user/modelo ./models .                            # Subir
+hf upload user/modelo ./notebooks/01_entrenamiento.ipynb notebooks/01_entrenamiento.ipynb  # Subir notebook (un archivo a la vez)
+hf download user/modelo --local-dir ./cache                 # Descargar
 
-    CD->>LOCAL: uv run python scripts/05_validate.py
-    LOCAL-->>CD: Métricas, confusion matrix, ROC
-
-    CD->>CD: 👤 ¿Métricas aceptables?
-
-    CD->>LOCAL: uv run python scripts/06_publish_dataset.py
-    LOCAL->>KAGGLE: Dataset curado + DATA_CARD.md
-
-    CD->>CD: 👤 Completa Data Card
-
-    CD->>LOCAL: uv run python scripts/07_publish_model.py
-    LOCAL->>KAGGLE: Modelo + MODEL_CARD.md
-
-    CD->>CD: 👤 Completa Model Card
-
-    CD->>LOCAL: uv run python scripts/08_deploy_hf.py
-    LOCAL->>HF: Despliega app_inference.py
-
-    USER->>HF: Accede al Space
-    HF->>KAGGLE: Descarga modelo al iniciar
-    KAGGLE-->>HF: model.joblib, preprocessor.joblib
-    USER->>HF: Envía datos para predicción
-    HF-->>USER: Resultado de predicción
+# Spaces
+hf repos create user/app --repo-type space --space-sdk gradio  # Crear
+hf upload user/app ./app_inference . --repo-type space          # Desplegar
 ```
 
----
+## Principios de Diseño
 
-## Gestión de Entorno
-
-Todo el proyecto usa `uv` como gestor de paquetes y entornos virtuales:
-
-| Acción | Comando |
-|--------|---------|
-| Crear proyecto | `uv init mi-proyecto-ml` |
-| Agregar dependencia | `uv add pandas scikit-learn` |
-| Ejecutar script | `uv run python scripts/01_ingest.py` |
-| Ejecutar CLI tool | `uvx kaggle datasets list -s "query"` |
-| Login en HF | `uvx huggingface-cli login` |
-
-Nunca se usa `pip install` directamente ni `python -m venv`. El `pyproject.toml` y `uv.lock` garantizan reproducibilidad.
-
----
-
-## Configuración Centralizada
-
-Todos los parámetros del proyecto viven en un único `config.yaml`. Los scripts leen este archivo y nunca tienen valores hardcodeados. Esto permite que el científico de datos ajuste parámetros entre etapas sin modificar código.
-
-Parámetros clave:
-- **data.kaggle_ref**: Referencia del dataset en Kaggle (obligatorio)
-- **features.target**: Columna objetivo
-- **features.numeric / categorical**: Columnas a procesar
-- **model.type**: Tipo de modelo (random_forest, xgboost, tensorflow, pytorch)
-- **model.output_format**: Formato de serialización (joblib, pickle, keras, pth)
-- **publish.kaggle_username**: Usuario de Kaggle para publicación
-- **publish.hf_username**: Usuario de HF para despliegue
-
----
-
-## Data Card y Model Card
-
-Todo artefacto publicado a Kaggle incluye una card descriptiva:
-
-### Data Card (`cards/DATA_CARD.md`)
-Documenta el dataset curado:
-- Descripción y fuente original
-- Composición (filas, columnas, tipos)
-- Preprocesamiento aplicado
-- Valores faltantes del dataset original
-- Uso previsto y limitaciones
-- Licencia Apache 2.0
-
-### Model Card (`cards/MODEL_CARD.md`)
-Documenta el modelo entrenado:
-- Tipo de modelo y framework
-- Datos de entrenamiento y features
-- Métricas de evaluación
-- Hiperparámetros
-- Uso previsto y limitaciones
-- Consideraciones éticas
-- Instrucciones de uso
-- Licencia Apache 2.0
-
-Ambas cards se generan automáticamente con secciones `[COMPLETAR]` que el científico de datos debe revisar y completar antes de publicar.
-
----
-
-## Intervención Humana
-
-La arquitectura está diseñada para que la automatización y la intervención humana coexistan. Cada etapa produce artefactos visibles (CSVs, figuras, JSONs, cards) que el equipo revisa antes de avanzar.
-
-```mermaid
-flowchart LR
-    subgraph ROLES["Roles por Etapa"]
-        direction TB
-        IE["🔧 Ingeniero de Datos\nIngesta, Feature Engineering"]
-        CD["👨‍🔬 Científico de Datos\nEDA, Entrenamiento, Validación"]
-        AMBOS["🤝 Ambos\nRevisión de Cards, Despliegue"]
-    end
-
-    style IE fill:#e3f2fd,stroke:#1565c0
-    style CD fill:#f3e5f5,stroke:#6a1b9a
-    style AMBOS fill:#fff3e0,stroke:#ef6c00
-```
-
-| Entre etapas | Qué revisa el humano |
-|-------------|---------------------|
-| Ingesta → EDA | ¿Los datos descargados son correctos? ¿Formato esperado? |
-| EDA → Feature Eng. | ¿Qué columnas usar? ¿Hay outliers que tratar? ¿Qué transformaciones? |
-| Feature Eng. → Train | ¿El dataset procesado tiene sentido? ¿Las features son correctas? |
-| Train → Validate | ¿El modelo converge? ¿Los parámetros son razonables? |
-| Validate → Publish | ¿Las métricas son aceptables? ¿El modelo es suficientemente bueno? |
-| Publish → Deploy | ¿Las cards están completas? ¿La app funciona localmente? |
-
-Esta separación permite que diferentes roles participen en diferentes etapas: el ingeniero de datos en ingesta y feature engineering, el científico de datos en entrenamiento y validación, y ambos en la revisión de cards y despliegue.
+1. **CLI sobre MCP para operaciones** — El CLI `hf` es más confiable y simple que MCP servers para interactuar con HF Hub
+2. **MCP solo para documentación especializada** — Gradio Docs cubre la UI; el RAG sobre ESL/ISLP cubre la teoría. La búsqueda web general la hace el agente con sus herramientas incorporadas.
+3. **uv para todo** — Gestión de paquetes, entornos, ejecución de scripts. En Colab, `!uv pip install --system` solo para lo que falte (no `--upgrade` sobre paquetes preinstalados).
+4. **Modularidad** — Cada etapa es un script independiente con artefactos claros
+5. **Intervención humana** — Puntos de revisión entre cada etapa (👤)
+6. **HF Hub como fuente de verdad** — Datasets, modelos y apps viven en Hugging Face. Los notebooks de Colab también se publican ahí (subcarpeta `notebooks/` del repo del modelo) para alimentar el badge "Open in Colab".
+7. **config.yaml centralizado** — Todos los parámetros en un solo lugar, nunca hardcodeados. Excepción documentada: los notebooks de Colab son **autocontenidos** y replican la config inline para abrirse sin clonar el repo (ver `notebooks-ds.md` §Regla 9).
+8. **Cards obligatorias** — DATA_CARD.md y MODEL_CARD.md documentan cada publicación
+9. **Notebooks autocontenidos para Colab** — `01_entrenamiento.ipynb` y `02_inferencia.ipynb` no dependen de `lib/`, `config.yaml` ni `data/` locales. Descargan dataset y modelo desde HF Hub, instalan solo lo que falte con `uv`, y abren en Colab con un clic.
