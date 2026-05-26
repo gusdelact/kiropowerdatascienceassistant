@@ -4,13 +4,15 @@
 > Ejemplo principal: dataset de crédito (30,000 obs, 25 variables, clasificación binaria con desbalance ~78/22).
 > También aplica a problemas de regresión (ej: predicción de precios de vivienda).
 
+> **Pre-requisito bloqueante**: `notes/00_business_context.md` debe existir antes de ejecutar `02_eda.py` (ver `business-context.md`). El contexto de negocio define qué distribuciones priorizar, qué segmentos auditar y qué outliers son "operativamente relevantes" vs "ruido". Sin él, el EDA mira lo genérico, no lo que importa al problema.
+
 ## 📌 Posición en el protocolo Theory-Driven Design
 
-EDA tiene un régimen **especial** dentro de `theory-driven-design.md`: produce su propio documento `notes/00_design_eda.md`, pero con **timing bipartito** distinto al de las demás fases.
+EDA tiene un régimen **especial** dentro de `theory-driven-design.md`: produce su propio documento `notes/01_design_eda.md`, pero con **timing bipartito** distinto al de las demás fases.
 
-- **Antes** de codificar `02_eda.py`: crear `notes/00_design_eda.md` en estado *pre-EDA* con las secciones 1 (Contexto) y 2 (Preguntas guía e hipótesis). No se exigen consultas al RAG todavía.
+- **Antes** de codificar `02_eda.py`: crear `notes/01_design_eda.md` en estado *pre-EDA* con las secciones 1 (Contexto) y 2 (Preguntas guía e hipótesis). No se exigen consultas al RAG todavía.
 - **Durante** el EDA: ejecutar `02_eda.py`, generar figuras y `outputs/reports/eda_report.json`, registrar hallazgos.
-- **Al cerrar** el EDA, antes de iniciar `notes/01_design_fe.md`: completar las secciones 3 (Consultas al RAG), 4 (Implicaciones / puente a FE) y 5 (Riesgos) de la nota 00. Esta es la transición que **bloquea** la fase de FE si no está cumplida.
+- **Al cerrar** el EDA, antes de iniciar `notes/02_design_fe.md`: completar las secciones 3 (Consultas al RAG), 4 (Implicaciones / puente a FE) y 5 (Riesgos) de la nota 01. Esta es la transición que **bloquea** la fase de FE si no está cumplida.
 
 La diferencia con FE/Modelado/Validación es que en aquellas fases el RAG va *antes del código* porque las decisiones son a priori. En EDA las decisiones son *a posteriori* del descubrimiento: las consultas al RAG anclan los hallazgos en teoría y los traducen en decisiones para FE.
 
@@ -18,16 +20,16 @@ Resumen rápido:
 
 | Pregunta | Respuesta |
 |---|---|
-| ¿Necesito `notes/00_design_eda.md`? | **Sí**, con timing bipartito (pre-EDA y al cierre). |
+| ¿Necesito `notes/01_design_eda.md`? | **Sí**, con timing bipartito (pre-EDA y al cierre). |
 | ¿Debo consultar el RAG antes de escribir `02_eda.py`? | No. Las consultas se hacen al cerrar el EDA, sobre los hallazgos. |
 | ¿Puedo consultar el RAG durante el EDA? | Sí, puntualmente, cuando un hallazgo amerite anclaje teórico inmediato. |
-| ¿Qué bloquea la transición a FE? | Que `notes/00_design_eda.md` esté en estado **cerrado** (secciones 1-5 completas). |
+| ¿Qué bloquea la transición a FE? | Que `notes/01_design_eda.md` esté en estado **cerrado** (secciones 1-5 completas). |
 
-Plantilla y estructura mínima en `theory-driven-design.md` §"Plantilla mínima de `notes/00_design_eda.md`".
+Plantilla y estructura mínima en `theory-driven-design.md` §"Plantilla mínima de `notes/01_design_eda.md`".
 
 ### Consultas obligatorias al cerrar el EDA
 
-Cuando completes la sección 3 de la nota 00, debes haber consultado el RAG sobre todos los hallazgos accionables que dispararán decisiones aguas abajo. Las temáticas mínimas (cuando aplican al dataset):
+Cuando completes la sección 3 de la nota 01, debes haber consultado el RAG sobre todos los hallazgos accionables que dispararán decisiones aguas abajo. Las temáticas mínimas (cuando aplican al dataset):
 
 - Disciplina del flujo iterativo (R4DS Cap. 10) — variación, covariación, qué tipos de pregunta hacer.
 - Lectura del target (skew, multimodalidad, ceros estructurales) y consecuencias para FE/modelado.
@@ -458,19 +460,19 @@ El stack base del EDA en este power es **pandas + numpy + seaborn/matplotlib + `
 - Comparaciones entre grupos (`ttest_ind`, `mannwhitneyu`, `ks_2samp`).
 - Tests de normalidad (`shapiro`, `normaltest`).
 
-`scipy.stats` viene como dependencia transitiva del stack, así que **no añade peso** al entorno. Úsalo libremente durante el EDA cuando necesites una prueba puntual; cita el resultado en `notes/00_design_eda.md` solo si dispara una decisión aguas abajo.
+`scipy.stats` viene como dependencia transitiva del stack, así que **no añade peso** al entorno. Úsalo libremente durante el EDA cuando necesites una prueba puntual; cita el resultado en `notes/01_design_eda.md` solo si dispara una decisión aguas abajo.
 
 ### Cuándo subir de `scipy.stats` a `statsmodels` (opt-in)
 
 `statsmodels` es una dependencia adicional **opcional**, justificable solo cuando aporta algo que el stack base no cubre. Tres triggers concretos:
 
 1. **Series de tiempo**: ADF / KPSS para estacionariedad, descomposición STL, ACF/PACF, ARIMA/SARIMAX. `scipy` no cubre esto y es el caso más claro de inclusión.
-2. **VIF (multicolinealidad)** cuando el EDA detecta correlaciones > 0.85 entre varias features y la nota 00 quiere fundamentar la decisión "eliminar feature vs. usar Ridge/ElasticNet" antes de pasar a FE. La función relevante es `statsmodels.stats.outliers_influence.variance_inflation_factor`.
+2. **VIF (multicolinealidad)** cuando el EDA detecta correlaciones > 0.85 entre varias features y la nota 01 quiere fundamentar la decisión "eliminar feature vs. usar Ridge/ElasticNet" antes de pasar a FE. La función relevante es `statsmodels.stats.outliers_influence.variance_inflation_factor`.
 3. **Inferencia formal** cuando el entregable lo exige (informes regulados, académicos, salud): `smf.ols(...).fit().summary()` para tabla con coeficientes, errores estándar, p-values, IC, AIC/BIC, condition number. sklearn no entrega eso porque su foco es predicción, no inferencia.
 
 Reglas operativas si entra `statsmodels`:
 
-- Convive con `scikit-learn`, **no lo reemplaza**: sklearn lleva la predicción y el deploy a HF Spaces; `statsmodels` emite la inferencia como artefacto auxiliar dentro del EDA o de la nota 00.
+- Convive con `scikit-learn`, **no lo reemplaza**: sklearn lleva la predicción y el deploy a HF Spaces; `statsmodels` emite la inferencia como artefacto auxiliar dentro del EDA o de la nota 01.
 - No uses `statsmodels` para hacer hypothesis testing sobre el dataset completo y luego seleccionar features con esos resultados: eso es leakage sutil. Las decisiones de FE/modelado se justifican vía RAG (ESL/ISLP), no vía p-values del train.
 - Si la única razón es "quiero ver `summary()`", no añadas la dependencia: usa `scipy.stats.linregress` o `seaborn.regplot` con `ci=95`, son suficientes para EDA.
 - Documenta la inclusión en `pyproject.toml` con justificación corta en el PR/commit (qué trigger de los tres dispara la dependencia).
@@ -513,7 +515,17 @@ Para Gradio usa el server MCP `gradio` (no la web genérica).
 
 Una vez completado el EDA:
 
-1. Cierra `notes/00_design_eda.md` (secciones 3-5: consultas al RAG sobre los hallazgos, tabla de implicaciones para FE, riesgos). La plantilla está en `theory-driven-design.md`.
-2. Solo entonces inicia `notes/01_design_fe.md` y la fase de Feature Engineering (`workflow-feature-engineering.md`).
+1. Cierra `notes/01_design_eda.md` (secciones 3-5: consultas al RAG sobre los hallazgos, tabla de implicaciones para FE, riesgos). La plantilla está en `theory-driven-design.md`.
+2. Solo entonces inicia `notes/02_design_fe.md` y la fase de Feature Engineering (`workflow-feature-engineering.md`).
 
-La nota 00 es el **puente formal** entre exploración y diseño: cada hallazgo accionable del EDA debe convertirse en una fila de la tabla "Implicaciones para el código" que disparará una decisión concreta en la nota 01.
+La nota 01 es el **puente formal** entre exploración y diseño: cada hallazgo accionable del EDA debe convertirse en una fila de la tabla "Implicaciones para el código" que disparará una decisión concreta en la nota 02.
+
+## Paridad EDA con el notebook de entrenamiento
+
+Cuando se genere o regenere `notebooks/01_entrenamiento.ipynb`, el bloque de EDA del notebook debe replicar **todos los análisis** que produce este script (`02_eda.py`), con la misma profundidad. La regla operativa está en `notebooks-ds.md` §"Regla 11: paridad obligatoria del EDA entre notebook y script".
+
+En la práctica esto significa:
+
+- Si añades, modificas o quitas un análisis en `02_eda.py` (una figura, una tabla, una métrica), regenera el notebook con el script generador (`scripts/build_notebooks.py` u homólogo) y vuelve a hacer el sanity-check de ejecución end-to-end.
+- Si la conversación con el usuario disparó un análisis ad-hoc (multimodalidad de una feature, perfiles de la clase minoritaria, etc.) y se decidió conservarlo en el pipeline, el flujo es: actualizar `02_eda.py` → actualizar el script generador del notebook → regenerar el `.ipynb` → ejecutar `nbconvert --execute` → comparar cifras clave contra `outputs/reports/eda_report.json`.
+- Las cifras del notebook deben coincidir numéricamente con las del script (misma `SEED`, mismas heurísticas de umbral 13, 1.5·IQR, 0.85). Si divergen, hay drift y el notebook NO se publica hasta resolverlo.

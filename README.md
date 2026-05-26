@@ -4,42 +4,61 @@ Asistente integral para desarrollo de aplicaciones de ciencia de datos y machine
 
 ## Qué hace
 
-- Guía el desarrollo de proyectos ML con una **arquitectura modular por etapas** (9 scripts independientes)
-- Conecta directamente con **Hugging Face** (datasets, modelos y Spaces) para publicación y despliegue
-- Incluye MCP servers para consultar documentación de librerías Python y Gradio
+- Guía el desarrollo de proyectos ML con una **arquitectura modular por etapas** (8 scripts independientes + generador de notebooks)
+- Usa **Hugging Face Hub como única fuente de datos** y como repositorio central de datasets curados, modelos y Spaces (Kaggle no es soportado en esta versión)
+- Obliga al agente a **diseñar antes de codificar**: produce `notes/0N_design_*.md` con consultas reales al RAG antes de escribir código de FE, modelado o validación
+- Incluye un **MCP server independiente (`rag-books-mcp`)** que expone ESL e ISLP con búsqueda semántica, en lugar de búsqueda web genérica
 - Promueve **intervención humana** entre cada etapa del pipeline
-- Genera dos aplicaciones Gradio: un dashboard de resultados (local) y una de inference (HF Spaces)
+- Genera **dos aplicaciones Gradio**: un dashboard de resultados (local) y una app de inferencia que se despliega a HF Spaces
 - Genera **dos notebooks autocontenidos para Google Colab** (entrenamiento + inferencia) publicados en HF Hub con badge "Open in Colab"
+- Codifica gotchas de producción descubiertos en validaciones reales: puerto 7860 en HF Spaces, `huggingface-hub>=0.28.1`, no SMOTE en datasets > 500K filas, calibración de umbral con curva PR cuando hay desbalance, etc.
 
 ## Proceso de Diseño
 
-El Power no se diseñó en abstracto. Se construyó a partir de material real y experiencia práctica.
+El Power no se diseñó en abstracto. Se construyó en tres oleadas sobre material real, y cada decisión tiene una huella concreta en el repositorio. Para la cronología completa con archivos, fechas y conversaciones que detonaron cada cambio, ver [`MEMORIA_CONSTRUCCION_POWER.md`](../../MEMORIA_CONSTRUCCION_POWER.md) en la raíz del workspace.
 
 ### Fuentes de Referencia
 
-**Libros base:**
+**Libros base (canónicos, fundamentación teórica):**
 
 1. **An Introduction to Statistical Learning with Applications in Python (ISLP)** — James, Witten, Hastie, Tibshirani & Taylor. Springer, 2nd Edition (2023). Disponible gratuitamente en https://hastie.su.domains/ISLP/ISLP_website.pdf.download.html. Cubre los fundamentos de aprendizaje estadístico, validación cruzada, regularización, árboles de decisión, SVM, clustering y más. Es la referencia principal para la estructura del pipeline de validación y selección de modelos.
 
 2. **The Elements of Statistical Learning (ESL)** — Hastie, Tibshirani & Friedman. Springer, 2nd Edition (2009). Disponible gratuitamente en https://www.sas.upenn.edu/~fdiebold/NoHesitations/BookAdvanced.pdf. Tratamiento más profundo y matemático de los mismos temas. Se usó como referencia para las decisiones de Feature Engineering, boosting (base teórica de XGBoost), y métricas de evaluación.
 
-Ambos libros son de los mismos autores de Stanford y se complementan: ISL es accesible y práctico, ESL es riguroso y profundo.
+Ambos libros están vectorizados en ChromaDB (1977 chunks, embeddings con `all-MiniLM-L6-v2`) y se sirven como MCP server independiente (`rag-books-mcp`). El agente los consulta en tiempo de uso, no los memoriza.
 
-**Material de referencia:**
-Las heurísticas y patrones de código están basados en:
-- La secuencia lógica de un proyecto de ML (EDA → preprocesamiento → entrenamiento → evaluación)
-- Patrones probados con pandas, sklearn, matplotlib y seaborn
-- Buenas prácticas de validación cruzada y manejo de data leakage
-- Estructura de scripts reproducibles
+**Notebooks de clase (estructura pedagógica de los `models-*.md`):**
+
+Los cuatro archivos `models-*.md` no se inventaron desde cero. Heredaron taxonomía, intuición e hiperparámetros de cinco notebooks de la maestría que viven en `notebooks_ejemplo/`:
+
+| Notebook | Tema | Steering generado |
+|---|---|---|
+| `ANH_IA_L01_L02_*` | Regresión lineal, dataset Boston, mínimos cuadrados | `models-linear-regression.md` |
+| `ANH_IA_L03L04_RTreeRF_*` + `ANH_L05_L06_RFRLCT_*` | Regression Trees + intuición de Random Forest (bootstrap + agregación) | `models-trees-rf.md` |
+| `ANH_L07_L08_L09_Ensemble_*` | Bagging, RF Classifier, Boosting | `models-ensemble.md` |
+| `ANH_IA_L10_SVM_*` | SVM con kernels, make_moons, frontera no lineal | `models-svm.md` |
+
+Los notebooks aportaron el "qué" del modelo (intuición → fórmula → código → ejemplos). Las validaciones reales aportaron el "cómo no romperlo en producción" (heurísticas operacionales que se sumaron encima).
 
 ### Metodología de Construcción
 
-1. **Análisis de mejores prácticas** — Se revisaron los libros de referencia y proyectos reales para extraer el flujo de trabajo común en proyectos de datos
-2. **Abstracción en etapas** — Se identificaron las 8 etapas recurrentes y se formalizaron como scripts independientes
-3. **Integración de herramientas** — Se conectaron los MCP servers de Gradio Docs y RAG Books para que el asistente pudiera operar directamente con la documentación oficial y la teoría de referencia
-4. **Documentación como código** — Los patrones extraídos se codificaron en steering files que el asistente carga bajo demanda
-5. **Validación con casos reales** — Se probó el Power con proyectos completos para verificar que el flujo funcionaba end-to-end
-6. **Iteración con feedback** — Se refinó el POWER.md incorporando gotchas y limitaciones descubiertas durante la implementación real (licencias, XGBoost en macOS, versiones de Gradio en HF Spaces)
+El power evolucionó en tres oleadas claramente trazables en el repositorio:
+
+1. **Esqueleto inicial (abril 2026)** — `POWER.md`, `mlops-deployment.md`, `gradio-interfaces.md`, `README.md` mínimos. Cuatro MCP servers contemplados (Tavily, Kaggle, HF, Gradio Docs). Pipeline conceptual sin steering files de modelos ni de teoría.
+
+2. **Materialización del 16 de mayo (madrugada, 00:45 – 02:25)** — En menos de dos horas se crearon `huggingface-workflows.md`, `ARQUITECTURA.md`, los cuatro `workflow-*.md` y los cuatro `models-*.md` directamente sobre los notebooks de clase. La taxonomía del power calca la taxonomía del curso: L01-02 → lineales, L03-06 → árboles, L07-09 → ensembles, L10 → SVM.
+
+3. **Refinamiento del 16-18 de mayo (cinco pipelines reales)** — Cada validación dejó hallazgos que se promovieron a steering files o a §Troubleshooting de `POWER.md`. Esta oleada cambió el carácter del power: dejó de ser un manual y se volvió una destilación de fricciones reales.
+
+### Tres decisiones de diseño que reformaron el power
+
+A lo largo del refinamiento, tres decisiones cambiaron la forma del power:
+
+**1. Hugging Face Hub como única fuente de datos.** La versión inicial soportaba Kaggle (con doble credencial: token `KGAT_` para el MCP + `kaggle.json` para el CLI) y triple sintaxis de licencia (`"Apache 2.0"` con espacio en JSON de Kaggle, `apache-2.0` en YAML de HF, `Apache-2.0` en `config.yaml`). Eliminar Kaggle bajó la fricción de setup, eliminó la triple sintaxis y concentró el ciclo dataset-curado → modelo → app en un único namespace. Los proyectos `proyectos/salary-predictor/kaggle-model/` y `proyectos/iris-classifier/kaggle-model/` son las huellas del power viejo.
+
+**2. RAG sobre libros canónicos en lugar de búsqueda web genérica.** Se eliminó Tavily como MCP server (resultados no auditables, costo, redundancia con las herramientas web del agente) y se sustituyó por `rag-books-mcp`, un servidor MCP independiente que expone semánticamente ESL e ISLP. El cambio elevó la calidad de las citas: de "según un blog" pasó a `[ESL §10.10]`, `[ISLP §8.1.2]`. El `mcp.json` actual del power está literalmente vacío; el RAG vive aparte para que sea reusable por otros proyectos.
+
+**3. "Diseñar antes de ejecutar" como protocolo bloqueante.** Una vez que el agente tiene un RAG de calidad, hay que decidir si lo consulta antes (para fundamentar) o después (para decorar). La interrupción del usuario en una de las validaciones (*"te interrumpí porque hiciste el código sin diseñar y tomar en cuenta los libros"*) detonó `theory-driven-design.md`: el agente está obligado a producir `notes/02_design_fe.md`, `notes/03_design_modeling.md` y `notes/04_design_validation.md` con consultas reales al RAG **antes** de escribir código de la fase correspondiente (la nota 01 de EDA tiene timing bipartito y se cierra al terminar el EDA). El power tiende cada vez más a ese patrón: la fase de diseño dejó de ser un comentario flotante para convertirse en un artefacto físico del proyecto.
 
 El resultado es un Power que no solo genera código, sino que encapsula **método de trabajo** basado en experiencia práctica real.
 
@@ -79,7 +98,7 @@ Guías detalladas que se cargan bajo demanda según la etapa del proyecto:
 | Archivo | Tema |
 |---------|------|
 | `theory-rag-guide.md` | Manual operativo del servidor MCP `rag-books-mcp` (ESL + ISLP). Define las 4 tools, el formato de citas y el modo degradado. Es el **cómo** consultar la teoría. |
-| `theory-driven-design.md` | Protocolo obligatorio de uso del RAG **antes** de codificar. Exige producir `notes/01_design_fe.md`, `notes/02_design_modeling.md` y `notes/03_design_validation.md` con consultas reales y decisiones documentadas. Es el **cuándo** y el entregable. |
+| `theory-driven-design.md` | Protocolo obligatorio de uso del RAG **antes** de codificar. Exige producir `notes/01_design_eda.md`, `notes/02_design_fe.md`, `notes/03_design_modeling.md` y `notes/04_design_validation.md` con consultas reales y decisiones documentadas. Es el **cuándo** y el entregable. |
 
 **Infraestructura:**
 
@@ -280,6 +299,20 @@ mi-proyecto-ml/
 - **Intervención humana** — Puntos de revisión entre cada etapa del pipeline.
 
 ## Casos de Uso Probados
+
+El power se validó contra cinco pipelines reales entre el 16 y el 18 de mayo de 2026, cada uno con un dataset distinto, un tipo de problema distinto y una familia de modelo distinta. La traza completa de cada conversación vive en `validaciones/` (raíz del workspace).
+
+| # | Validación | Dataset | Tipo de problema | Modelo | Resultado clave |
+|---|---|---|---|---|---|
+| 1 | Credit Card Fraud | `alenc123/credit-card-fraud` (1.29M filas, 0.58% fraudes) | Clasificación binaria, desbalance severo (~172:1) | XGBoost + `scale_pos_weight` | F1 (clase fraude) = 0.81 con umbral calibrado por curva PR; ROC-AUC = 0.998. Detonó la regla de no usar SMOTE en datasets > 500K filas. |
+| 2 | USA Housing | `gusdelact/USA_Housing` (5000 filas, 7 columnas) | Regresión continua | Linear Regression + benchmarking vs Ridge/Lasso/ElasticNet | R² = 0.9146, RMSE = $102K, MAPE = 7.42%. Aclaró que en regresión no aplica SMOTE: el equivalente es split estratificado por bins del target. |
+| 3 | Wine Fraud | `gusdelact/wine_fraud` (6497 filas, 3.8% fraudes) | Clasificación binaria con desbalance | RF + SMOTE vs XGBoost + `scale_pos_weight` | RF gana por margen estrecho (F1 = 0.365 vs 0.351). Primer pipeline con `notes/0N_design_*.md` consultando RAG antes de codificar. |
+| 4 | Mouse Viral Study | `gusdelact/mouse_viral_study` (400 filas, balanceado) | Clasificación binaria | SVM con kernel RBF | F1 = 1.0. Detonó cinco hallazgos (ver `validaciones/hallazgos_mousevirus_pipeline.md`) que crearon `notebooks-ds.md`, `matplotlib-headless.md` y la Regla 0 de `gradio-interfaces.md`. |
+| 5 | Penguins (v1 + v2) | `gusdelact/penguins` (344 filas, 3 especies) | Clasificación multiclase | Decision Tree (max_depth=3) | F1-weighted = 0.988. La interrupción del usuario en v1 (*"hiciste el código sin diseñar"*) detonó `theory-driven-design.md`. v2 documentó los dos errores recurrentes de despliegue a HF Spaces (puerto 7860, `huggingface-hub>=0.28.1`). |
+
+Cada falla concreta de estos cinco pipelines se promovió a regla obligatoria en un steering file. El power final es la destilación de esas cinco validaciones encima del material de los notebooks de clase.
+
+**Casos de uso anteriores al refinamiento (con power viejo, pre-13 abril):**
 
 | Proyecto | Tipo | Algoritmo | Resultado |
 |----------|------|-----------|-----------|

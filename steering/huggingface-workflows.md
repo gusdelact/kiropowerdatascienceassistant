@@ -569,6 +569,8 @@ hf download usuario/mi-modelo --local-dir ./model_cache
 | Subir a Space | `hf upload usuario/app ./carpeta . --repo-type space` |
 | Ver quién soy | `hf auth whoami` |
 
+> **No existe** un comando CLI para configurar variables o secretos del Space (`hf repo settings` no es un comando válido). Usar la API Python `huggingface_hub.add_space_variable` / `huggingface_hub.add_space_secret`. Ver `mlops-deployment.md` §"Patrones Clave del Despliegue" punto 6.
+
 ## Gotchas
 
 - Asegúrate de estar autenticado (`hf auth login`) antes de subir contenido
@@ -578,3 +580,4 @@ hf download usuario/mi-modelo --local-dir ./model_cache
 - Para actualizar un dataset/modelo existente, simplemente vuelve a hacer `hf upload` — sobreescribe los archivos
 - La versión de `sdk_version` en el README del Space debe coincidir con una versión real de Gradio
 - **Compatibilidad `huggingface-hub` ↔ `gradio`** — `gradio>=5.31` exige `huggingface-hub>=0.28.1`. NO pinear `huggingface-hub==0.25.0` en `app_inference/requirements.txt` ni en el `pyproject.toml` del proyecto: rompe el resolver de pip al construir el Space (`ResolutionImpossible`). Usar siempre rango `>=0.28.1`. Ver `gradio-interfaces.md` §"Errores Documentados en HF Spaces" → Error 2.
+- **Variables y secrets del Space NO se setean por CLI** — La CLI `hf` no tiene comando para esto; intentar `hf repo settings` u otras variantes falla con "command not found". Hay que usar la API Python `add_space_variable` (visibles, p. ej. `HF_MODEL_REPO`) y `add_space_secret` (privados, p. ej. `HF_TOKEN`). Ambas reciben `repo_id`, `key`, `value` y opcional `description`. Patrón completo en `mlops-deployment.md` §"Patrones Clave del Despliegue" punto 6.

@@ -2,14 +2,16 @@
 
 > Cubre tratamiento de outliers con IQR (factor 1.6), eliminación de categorías raras, conversión de tipos, eliminación de features correlacionadas, estandarización con `StandardScaler`, y construcción de pipelines con `ColumnTransformer`.
 
+> **Pre-requisitos bloqueantes**: (1) `notes/00_business_context.md` (ver `business-context.md`) — define qué transformación del target tiene sentido (`log1p` si la métrica es relativa, no si es absoluta), qué split estratificar (por clase, por segmento de negocio o por bins del target) y qué encoding priorizar; (2) `notes/02_design_fe.md` (ver `theory-driven-design.md`) — fundamenta cada decisión con el RAG. El primero responde **por qué** importa, el segundo **cómo** hacerlo.
+
 ## ⚠️ ANTES DE CODIFICAR — Theory-Driven Design (OBLIGATORIO)
 
-**No escribir ni una línea de FE sin haber producido `notes/01_design_fe.md`.** Esta es la primera fase del pipeline donde el protocolo `theory-driven-design.md` (Reglas 1, 3 y 4) es vinculante.
+**No escribir ni una línea de FE sin haber producido `notes/02_design_fe.md`.** Esta es la primera fase del pipeline donde el protocolo `theory-driven-design.md` (Reglas 1, 3 y 4) es vinculante.
 
 Antes de cualquiera de estas líneas:
 
 ```python
-# Disparadores que requieren notes/01_design_fe.md ya escrito:
+# Disparadores que requieren notes/02_design_fe.md ya escrito:
 train_test_split(...)
 StandardScaler()
 OneHotEncoder(...)
@@ -28,15 +30,15 @@ el agente DEBE haber:
    - Encoding de categóricas según cardinalidad y familia de modelo candidata.
    - Manejo de desbalance (solo si es clasificación): SMOTE / `class_weight`, siempre post-split.
 
-2. **Producido `notes/01_design_fe.md`** con las 5 secciones obligatorias de `theory-driven-design.md` §Regla 2 (Contexto, Decisiones, Consultas al RAG con citas, Implicaciones para el código, Riesgos). El RAG informa el diseño; las citas en `notes/` son la evidencia.
+2. **Producido `notes/02_design_fe.md`** con las 5 secciones obligatorias de `theory-driven-design.md` §Regla 2 (Contexto, Decisiones, Consultas al RAG con citas, Implicaciones para el código, Riesgos). El RAG informa el diseño; las citas en `notes/` son la evidencia.
 
-3. **Verificado** que el docstring de `03_feature_engineering.py` referencia el documento (`Diseño: notes/01_design_fe.md`), como exige la Regla 5.
+3. **Verificado** que el docstring de `03_feature_engineering.py` referencia el documento (`Diseño: notes/02_design_fe.md`), como exige la Regla 5.
 
 **Excepciones**: ver `theory-driven-design.md` §Regla 6. Las más relevantes en FE son: fixes puntuales sobre un pipeline ya entrenado, refactor operativo, baseline rápido explícitamente solicitado por el usuario (en cuyo caso el `notes/` se difiere al modelo final).
 
-**Modo degradado** (RAG no responde): producir `notes/01_design_fe.md` igual con cabecera "⚠️ Sin verificación bibliográfica" — ver `theory-driven-design.md` §Regla 7. NO inventar citas a ESL/ISLP.
+**Modo degradado** (RAG no responde): producir `notes/02_design_fe.md` igual con cabecera "⚠️ Sin verificación bibliográfica" — ver `theory-driven-design.md` §Regla 7. NO inventar citas a ESL/ISLP.
 
-> Nota sobre EDA: la fase 2 (EDA) tiene su propio documento `notes/00_design_eda.md` con timing bipartito (pre-EDA y al cierre), descrito en `workflow-eda.md` §"Posición en el protocolo Theory-Driven Design" y `theory-driven-design.md` §Regla 1. Los hallazgos del EDA quedan anclados al RAG en la nota 00 y la tabla "Implicaciones para el código" de esa nota es el **input directo** de las queries y decisiones de la nota 01.
+> Nota sobre EDA: la fase de EDA tiene su propio documento `notes/01_design_eda.md` con timing bipartito (pre-EDA y al cierre), descrito en `workflow-eda.md` §"Posición en el protocolo Theory-Driven Design" y `theory-driven-design.md` §Regla 1. Los hallazgos del EDA quedan anclados al RAG en la nota 01 y la tabla "Implicaciones para el código" de esa nota es el **input directo** de las queries y decisiones de la nota 02.
 
 ---
 
@@ -438,7 +440,7 @@ def create_interaction_features(df, col_a, col_b):
 - **Distribución sesgada del target** → considerar `np.log1p(y)` antes de modelar regresión
 - **Selección por Information Gain** → coincide con `feature_importances_` de árboles (consulta `rag-books-mcp` con `cite_foundation(topic="feature importance impurity decrease")`, ver `theory-rag-guide.md`)
 - **Categóricas con muchos niveles raros** → R4DS §15 (factors) recomienda reagrupar con `fct_lump`/`fct_other`. En pandas el equivalente es: detectar niveles con `value_counts(normalize=True) < umbral`, mapearlos a un `"Other"` antes de encoding. Consulta `rag-books-mcp` con `search_theory(query="factor lump small categories", book="r4ds")`. **Importante**: cita el principio, no copies código R.
-- **Diseño de transformaciones de variables numéricas** → R4DS §6 (data-transform) ofrece la mentalidad "una operación por línea, encadenada"; en pandas se traduce a un `Pipeline` o a `df.assign()` encadenados. Cuando documentes el diseño en `notes/01_design_fe.md`, puedes apoyarte en R4DS para el *flujo* y en FES para el *qué transformar*.
+- **Diseño de transformaciones de variables numéricas** → R4DS §6 (data-transform) ofrece la mentalidad "una operación por línea, encadenada"; en pandas se traduce a un `Pipeline` o a `df.assign()` encadenados. Cuando documentes el diseño en `notes/02_design_fe.md`, puedes apoyarte en R4DS para el *flujo* y en FES para el *qué transformar*.
 
 ## Consultar Documentación
 

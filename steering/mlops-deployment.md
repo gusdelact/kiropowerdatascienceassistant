@@ -133,6 +133,7 @@ Uso: uv run python scripts/08_deploy_hf.py
 import yaml
 import subprocess
 from pathlib import Path
+from huggingface_hub import HfApi, add_space_variable
 
 # Cargar configuración
 with open("config.yaml") as f:
@@ -178,16 +179,33 @@ result = subprocess.run([
     "--commit-message", f"Deploy app de inferencia (modelo: {model_repo})"
 ], capture_output=True, text=True)
 
-if result.returncode == 0:
-    print(f"\n✅ App desplegada en:")
-    print(f"   https://huggingface.co/spaces/{repo_id}")
-    print(f"\n👤 SIGUIENTE:")
-    print(f"   1. Espera ~1 min a que el Space se construya")
-    print(f"   2. Verifica que funciona: https://huggingface.co/spaces/{repo_id}")
-    print(f"   3. Si necesitas secretos, configúralos en Settings del Space")
-else:
-    print(f"❌ Error: {result.stderr}")
+if result.returncode != 0:
+    print(f"❌ Error al subir: {result.stderr}")
     print("Asegúrate de estar autenticado: hf auth login")
+    exit(1)
+
+print(f"✅ Archivos subidos al Space")
+
+# --- 4. Configurar variables de entorno del Space (API Python, NO CLI) ---
+# La CLI `hf` NO soporta `repo settings` ni equivalente para variables/secrets
+# en la versión >=0.28. Usamos la API Python `add_space_variable` (pública,
+# documentada en huggingface_hub). Para secretos sensibles (API keys, tokens
+# privados) usar `add_space_secret` con la misma firma.
+print(f"\nConfigurando variables de entorno del Space...")
+add_space_variable(
+    repo_id=repo_id,
+    key="HF_MODEL_REPO",
+    value=model_repo,
+    description="Repo del modelo en HF Hub que la app descarga al iniciar",
+)
+print(f"✅ HF_MODEL_REPO={model_repo}")
+
+print(f"\n✅ App desplegada en:")
+print(f"   https://huggingface.co/spaces/{repo_id}")
+print(f"\n👤 SIGUIENTE:")
+print(f"   1. Espera ~1 min a que el Space se construya")
+print(f"   2. Verifica que funciona: https://huggingface.co/spaces/{repo_id}")
+print(f"   3. Si necesitas secretos sensibles, usa add_space_secret(...) en lugar de add_space_variable(...)")
 ```
 
 ### Patrones Clave del Despliegue
@@ -235,6 +253,32 @@ model = joblib.load(model_path)
 # Simplemente vuelve a subir — sobreescribe los archivos
 hf upload usuario/mi-app ./app_inference/ . --repo-type space --commit-message "Fix: actualizar UI"
 ```
+
+**6. Configurar variables y secretos del Space (API Python, NO CLI)**:
+
+La CLI `hf` no expone comando para variables/secrets. Hay que usar la API Python:
+
+```python
+from huggingface_hub import add_space_variable, add_space_secret
+
+# Variable pública (visible en Settings, accesible como os.environ["KEY"])
+add_space_variable(
+    repo_id="usuario/mi-app",
+    key="HF_MODEL_REPO",
+    value="usuario/mi-modelo",
+    description="Repo del modelo que la app descarga",
+)
+
+# Secreto privado (oculto en UI y logs, accesible como os.environ["KEY"])
+add_space_secret(
+    repo_id="usuario/mi-app",
+    key="HF_TOKEN",
+    value="hf_xxx...",  # obtener de un keychain, NO hardcodear
+    description="Token con permisos read para descargar modelo privado",
+)
+```
+
+Diferencia operativa: **variable** para configuración no sensible (URLs, slugs, flags); **secreto** para credenciales (tokens, API keys, passwords). El Space recibe ambos como variables de entorno; la diferencia es la visibilidad en la UI y el manejo de logs. Documentación: https://huggingface.co/docs/huggingface_hub/package_reference/hf_api.
 
 ---
 
@@ -309,19 +353,24 @@ flowchart LR
 - [ ] `app_inference/requirements.txt` con versiones consistentes: `huggingface-hub>=0.28.1` (rango, NUNCA `==0.25.0`), `gradio` con rango compatible
 - [ ] `pip install --dry-run -r app_inference/requirements.txt` resuelve sin error
 - [ ] `app_inference/README.md` con `sdk_version` que coincida con la versión de Gradio realmente instalada
+- [ ] La app escribe sus archivos descargables a `tempfile.gettempdir()`, NO a `outputs/` (Error 3 de `gradio-interfaces.md`)
+- [ ] La app envuelve los inputs de `model.predict(...)` en `pd.DataFrame` con columnas en el orden de `model_info.json["feature_order"]` (Error 4 de `gradio-interfaces.md`)
 - [ ] `cards/DATA_CARD.md` completada
 - [ ] `cards/MODEL_CARD.md` completada
 - [ ] `uv run python scripts/08_deploy_hf.py` ejecutado
+- [ ] `08_deploy_hf.py` setea `HF_MODEL_REPO` (y otras variables/secrets necesarios) vía `add_space_variable` / `add_space_secret`, NO vía CLI
 - [ ] Space verificado en navegador (esperar ~1 min al build)
 
 ## Gotchas
 
 - **⚠️ Puerto obligatorio en HF Spaces: 7860** — El contenedor de HF Spaces SOLO expone el puerto 7860. La app de inferencia DEBE usar el patrón condicional `port = 7860 if os.environ.get("SPACE_ID") else 7861` y `server_name="0.0.0.0"`. NUNCA hardcodear `server_port=7861` aunque localmente se use ese puerto para evitar conflictos con `app_results`. Si el código que se sube al Space tiene un puerto distinto de 7860, el Space falla en runtime con `OSError: Cannot find empty port in range`. Ver `gradio-interfaces.md` §"Errores Documentados en HF Spaces" → Error 1.
 - **⚠️ Conflicto `huggingface-hub` vs `gradio` en `requirements.txt`** — `gradio>=5.31` exige `huggingface-hub>=0.28.1`. NO pinear `huggingface-hub==0.25.0` en `app_inference/requirements.txt` — pip falla con `ResolutionImpossible` al construir el Space. Usar siempre `huggingface-hub>=0.28.1` (rango, no pin estricto). Ver `gradio-interfaces.md` §"Errores Documentados en HF Spaces" → Error 2.
+- **⚠️ Outputs de la app en `tempfile.gettempdir()`** — Si la app genera archivos descargables (CSV de predicciones, plots, JSON), escribirlos a `tempfile.gettempdir()`, NO a `outputs/` ni a rutas relativas del proyecto. En HF Spaces, una ruta relativa como `outputs/predictions.csv` se resuelve como `/outputs/...`, fuera de las rutas permitidas por Gradio, y la app revienta con `gradio.exceptions.InvalidPathError`. Ver `gradio-interfaces.md` §"Errores Documentados en HF Spaces" → Error 3.
+- **⚠️ `model.predict(...)` recibe DataFrame, no ndarray** — Si el modelo se entrenó con DataFrame, la app debe envolver los inputs en `pd.DataFrame` con columnas en el orden de `model_info.json["feature_order"]`. Pasar un ndarray emite `UserWarning: X does not have valid feature names` y, peor, silencia errores de orden de columnas. Ver `gradio-interfaces.md` §"Errores Documentados en HF Spaces" → Error 4.
+- **⚠️ Variables del Space se setean por API Python, NO por CLI** — La CLI `hf` no expone un comando para configurar variables/secrets del Space (`hf repo settings` no existe). Usar la API Python: `from huggingface_hub import add_space_variable, add_space_secret` y llamarlas desde `08_deploy_hf.py` con `repo_id`, `key`, `value`. Para secretos sensibles (API keys, tokens privados) usar `add_space_secret` (no aparecen en la UI ni en logs). Para variables públicas no sensibles (`HF_MODEL_REPO`, `HF_DATASET_REPO`, etc.) usar `add_space_variable`. Documentadas en `huggingface_hub`: https://huggingface.co/docs/huggingface_hub/package_reference/hf_api#huggingface_hub.HfApi.add_space_variable.
 - **Validar localmente antes de subir** — Ejecutar `pip install --dry-run -r app_inference/requirements.txt` (o `uv pip compile`) ANTES de `08_deploy_hf.py`. Si el resolver falla en local, falla en Spaces y consume tiempo de cola.
 - HF Spaces tiene límite de 10GB para repos. Para modelos grandes, descárgalos en runtime con `hf_hub_download`
 - **Verificar versión de Gradio**: Usa `uv run python -c "import gradio; print(gradio.__version__)"` y pon esa versión exacta en `sdk_version` del README.md del Space
 - El Space se reconstruye con cada push (cada `hf upload`)
-- Si necesitas variables secretas (API keys), configúralas en Settings > Repository Secrets del Space
 - El dashboard `app_results` NUNCA se despliega — es solo para uso local del equipo de datos
-- Para modelos privados, la app necesita un token HF configurado como secreto del Space
+- Para modelos privados, la app necesita un token HF configurado como **secreto** del Space (vía `add_space_secret`), no como variable

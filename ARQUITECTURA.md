@@ -26,6 +26,8 @@ data-science-assistant/
 │       ├── chroma.sqlite3                  # Metadata y documentos
 │       └── [colecciones HNSW]              # Índices: esl_chapters, islp_chapters
 └── steering/
+    # Paso 0: contexto de negocio (BLOQUEANTE, antecede a todo lo demás)
+    ├── business-context.md                  # Cuestionario corto + notes/00_business_context.md
     # Workflow (cómo ejecutar cada fase)
     ├── workflow-eda.md                      # Guía de Análisis Exploratorio
     ├── workflow-feature-engineering.md      # Feature Engineering, split, scaling, encoding
@@ -96,10 +98,14 @@ flowchart TB
 
 ## Pipeline Completo por Etapas
 
-El pipeline se ejecuta como scripts independientes. Entre cada etapa hay un punto de intervención humana (👤) donde el científico de datos revisa artefactos y decide si avanzar.
+El pipeline se ejecuta como scripts independientes, precedidos por un **paso 0 bloqueante** de captura del contexto de negocio (cinco preguntas cortas que se materializan en `notes/00_business_context.md`). Entre cada etapa hay un punto de intervención humana (👤) donde el científico de datos revisa artefactos y decide si avanzar.
 
 ```mermaid
 flowchart TD
+    subgraph CONTEXTO["Paso 0: Contexto de Negocio (BLOQUEANTE)"]
+        Z["📋 notes/00_business_context.md\n5 preguntas adaptadas al régimen\n(regresión / clasificación / multiclase)\n→ define métrica primaria y\ncosto asimétrico de errores"]
+    end
+
     subgraph INGESTA["Etapa 1: Ingesta"]
         A["📥 01_ingest.py\nhf download → data/raw/"]
     end
@@ -127,6 +133,7 @@ flowchart TD
         I["📓 build_notebooks.py\nGenera 01_entrenamiento.ipynb\ny 02_inferencia.ipynb\n→ hf upload notebooks/*.ipynb\nal repo del modelo"]
     end
 
+    Z -->|"👤 Confirmar costos y métrica"| A
     A -->|"👤 Revisar datos"| B
     B -->|"👤 Decidir transformaciones"| C
     C -->|"👤 Verificar features"| D
@@ -136,6 +143,7 @@ flowchart TD
     G -->|"👤 Completar Model Card"| H
     H -->|"👤 Sanity check del Space"| I
 
+    style CONTEXTO fill:#fffde7,stroke:#f57f17
     style INGESTA fill:#e8f5e9,stroke:#2e7d32
     style ANALISIS fill:#fff3e0,stroke:#e65100
     style MODELO fill:#f3e5f5,stroke:#6a1b9a
@@ -201,6 +209,13 @@ mi-proyecto-ml/
 ├── data/
 │   ├── raw/                    # Datos originales (NUNCA modificar)
 │   └── processed/              # Datos después de Feature Engineering
+│
+├── notes/                      # Documentos de diseño (theory-driven)
+│   ├── 00_business_context.md  # Paso 0 BLOQUEANTE: contexto de negocio (5 preguntas)
+│   ├── 01_design_eda.md        # Pre/post-EDA con consultas al RAG (timing bipartito)
+│   ├── 02_design_fe.md         # Diseño de Feature Engineering (antes de codificar)
+│   ├── 03_design_modeling.md   # Diseño del modelado (antes de codificar)
+│   └── 04_design_validation.md # Diseño de validación (antes de codificar)
 │
 ├── scripts/
 │   ├── 01_ingest.py            # hf download → data/raw/
@@ -289,6 +304,7 @@ hf upload user/app ./app_inference . --repo-type space          # Desplegar
 
 ## Principios de Diseño
 
+0. **Business-Context First** — Antes de cualquier código (incluida la ingesta), el agente DEBE capturar el contexto de negocio en `notes/00_business_context.md` siguiendo `business-context.md`: cinco preguntas adaptadas al régimen del problema (regresión / clasificación / multiclase) que fijan la métrica primaria, el costo asimétrico de errores y el umbral mínimo de utilidad. Sin ese documento, el resto del pipeline elige métricas y `scoring=` por default y produce modelos calibrados contra una función de costo equivocada.
 1. **CLI sobre MCP para operaciones** — El CLI `hf` es más confiable y simple que MCP servers para interactuar con HF Hub
 2. **MCP solo para documentación especializada** — Gradio Docs cubre la UI; el RAG sobre ESL/ISLP cubre la teoría. La búsqueda web general la hace el agente con sus herramientas incorporadas.
 3. **uv para todo** — Gestión de paquetes, entornos, ejecución de scripts. En Colab, `!uv pip install --system` solo para lo que falte (no `--upgrade` sobre paquetes preinstalados).

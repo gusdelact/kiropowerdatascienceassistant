@@ -15,12 +15,13 @@ author: "Data Science Assistant Contributors"
 > En su lugar, el agente DEBE:
 > 1. Saludar brevemente y explicar qué puede hacer este Power (1-2 oraciones).
 > 2. Preguntar al usuario: **¿Qué proyecto o análisis de datos quieres trabajar?**
-> 3. Esperar la respuesta del usuario antes de tomar cualquier acción.
+> 3. Una vez que el usuario indique el dataset (`usuario/nombre-dataset` en HF Hub), el agente DEBE: (a) identificar y confirmar el **régimen del problema** (regresión / clasificación binaria / clasificación multiclase) en una sola frase, y (b) aplicar el **cuestionario corto de contexto de negocio** definido en `business-context.md` adaptado al régimen. Las 5 preguntas son obligatorias: 1) problema, 2) decisión que dispara la predicción; en clasificación 3) costo FP, 4) costo FN; en regresión 3) costo de sobre-estimar, 4) costo de sub-estimar; 5) métrica primaria + umbral mínimo de utilidad. El resultado se materializa en `notes/00_business_context.md`. Este paso es **bloqueante**: sin él no se ejecuta ingesta, EDA, FE, modelado ni validación.
+> 4. Esperar la respuesta del usuario antes de tomar cualquier acción.
 >
-> **Nunca asumir un dataset, un problema ni un modelo por defecto.** El usuario siempre decide qué datos usar y qué tipo de análisis realizar.
+> **Nunca asumir un dataset, un problema ni un modelo por defecto.** El usuario siempre decide qué datos usar y qué tipo de análisis realizar. Tampoco se asume el contexto de negocio: las cinco preguntas de `business-context.md` son obligatorias salvo en las excepciones de la Regla 5 de ese steering (datasets pedagógicos canónicos o smoke tests internos, declarados explícitamente).
 >
 > Ejemplo de primera respuesta correcta:
-> > "Soy tu asistente de Data Science. Puedo guiarte desde la exploración de datos hasta el despliegue de modelos ML. ¿Qué proyecto quieres trabajar? Si tienes un dataset en Hugging Face Hub, compárteme la referencia (formato `usuario/nombre-dataset`)."
+> > "Soy tu asistente de Data Science. Puedo guiarte desde la exploración de datos hasta el despliegue de modelos ML. ¿Qué proyecto quieres trabajar? Si tienes un dataset en Hugging Face Hub, compárteme la referencia (formato `usuario/nombre-dataset`). Cuando me lo des, te haré cinco preguntas cortas de contexto de negocio antes de tocar los datos, para elegir bien la métrica y el costo de los errores."
 
 ---
 
@@ -37,7 +38,8 @@ author: "Data Science Assistant Contributors"
 
 Este power proporciona una guía estructurada y heurísticas probadas para ejecutar proyectos de ciencia de datos y machine learning de principio a fin. Cada steering file es autocontenido con ejemplos de código, heurísticas y conexiones con la teoría.
 
-El flujo recomendado sigue cuatro fases:
+El flujo recomendado sigue cinco fases:
+0. **Contexto de Negocio** — cuestionario corto + `notes/00_business_context.md` (BLOQUEANTE)
 1. **EDA** — Análisis exploratorio
 2. **Feature Engineering** — Transformaciones, split, scaling, encoding
 3. **Modelado** — Entrenamiento por familia de modelo
@@ -47,6 +49,7 @@ El flujo recomendado sigue cuatro fases:
 
 ### Workflow (cómo ejecutar cada fase)
 
+- **business-context.md** — Paso 0 obligatorio. Cuestionario corto de 5 preguntas (problema, decisión que dispara la predicción, costo de sobre-predecir, costo de sub-predecir, métrica + umbral mínimo) que se materializa en `notes/00_business_context.md`. Es bloqueante: sin él no se hace EDA, FE, modelado ni validación. Define la métrica primaria y el costo asimétrico de los errores que el resto del pipeline debe respetar.
 - **workflow-eda.md** — Análisis exploratorio: duplicados, nulos, distribuciones, outliers, correlación. Heurística del umbral 13 para clasificar variables.
 - **workflow-feature-engineering.md** — IQR clipping, eliminación de categóricas raras, split estratificado, imputación, estandarización, encoding, `ColumnTransformer`.
 - **workflow-model-training.md** — Flujo común a todos los modelos: SMOTE, GridSearch/RandomizedSearch, cross-validation, serialización.
@@ -62,7 +65,7 @@ El flujo recomendado sigue cuatro fases:
 ### Teoría (por qué funciona)
 
 - **theory-rag-guide.md** — Manual operativo del servidor MCP `rag-books-mcp` (ESL + ISLP + FES + PDSH + R4DS). Define las 4 tools (`search_theory`, `cite_foundation`, `get_section`, `list_available_topics`), el formato de citas, los triggers por línea de código y el modo degradado. Aclara que R4DS está en R y solo se usa por sus principios. Es la referencia de **cómo** consultar la teoría.
-- **theory-driven-design.md** — Protocolo obligatorio de uso del RAG **antes** de codificar. Exige producir tres documentos de diseño (`notes/01_design_fe.md`, `notes/02_design_modeling.md`, `notes/03_design_validation.md`) con consultas reales al RAG, decisiones tomadas y alternativas descartadas. Es la referencia de **cuándo** y **con qué entregable**.
+- **theory-driven-design.md** — Protocolo obligatorio de uso del RAG **antes** de codificar. Exige producir cuatro documentos de diseño (`notes/01_design_eda.md`, `notes/02_design_fe.md`, `notes/03_design_modeling.md`, `notes/04_design_validation.md`) con consultas reales al RAG, decisiones tomadas y alternativas descartadas. La nota 01 (EDA) tiene timing bipartito (pre-EDA y al cierre); las notas 02-04 se producen antes del código de su fase. Es la referencia de **cuándo** y **con qué entregable**.
 
 ### Infraestructura
 
@@ -92,18 +95,41 @@ Tabla rápida para elegir la familia de modelo según el problema:
 Datos crudos (SOLO desde Hugging Face Hub)
     │
     ▼
+0. Contexto de Negocio (business-context.md) ⚠️ BLOQUEANTE
+   ⚠️ Antes de ingesta, EDA o cualquier código: producir notes/00_business_context.md
+      con las 5 preguntas obligatorias (adaptadas al régimen del problema).
+      Sin este documento NO se ejecuta ningún script.
+   • Paso A: identificar y confirmar régimen (regresión / clasificación binaria / multiclase)
+   • Pregunta 1: ¿Qué problema de negocio resolvemos?
+   • Pregunta 2: ¿Qué decisión o acción dispara la predicción?
+   • Pregunta 3:
+       - Clasificación: costo de un FP (falso positivo)
+       - Regresión:     costo de sobre-estimar el target (por unidad)
+   • Pregunta 4:
+       - Clasificación: costo de un FN (falso negativo) → ratio costo_FN/costo_FP
+       - Regresión:     costo de sub-estimar el target → ratio costo_sub/costo_sobre
+                        (puede ser "simétrico")
+   • Pregunta 5: Métrica primaria + umbral mínimo de utilidad
+       - Clasificación: recall / precision / F1 / PR-AUC / balanced_accuracy + valor mínimo
+       - Regresión:     MAE / RMSE / MAPE / RMSLE / pinball_loss + valor máximo
+   Excepción declarada: datasets pedagógicos canónicos (Iris, Titanic, Penguins, etc.)
+   pueden usar versión corta (preguntas 1 + 5), declarándolo en el documento.
+    │
+    ▼
 1. EDA (workflow-eda.md)
-   ℹ️ EDA NO requiere notes/ previo (excepción explícita en theory-driven-design.md §Regla 4).
-      EDA informa el diseño de FE, no al revés. Sus hallazgos (skew, multicolinealidad,
-      desbalance, categorías raras) son los INSUMOS que dispararán las queries
-      obligatorias al RAG en la fase 2.
+   ℹ️ EDA produce notes/01_design_eda.md (timing bipartito: pre-EDA + al cierre).
+      No bloquea la ejecución de 02_eda.py, pero sí la transición a FE.
+      Sus hallazgos (skew, multicolinealidad, desbalance, categorías raras) son los
+      INSUMOS que dispararán las queries obligatorias al RAG en la fase 2.
+      SÍ requiere `notes/00_business_context.md` ya producido (paso 0): el contexto
+      define qué distribuciones y segmentos priorizar.
    • Duplicados, nulos, distribuciones
    • Clasificar variables (numéricas vs categóricas, umbral 13)
    • Identificar outliers y categorías raras
     │
     ▼
 2. Feature Engineering (workflow-feature-engineering.md)
-   ⚠️ Antes de codificar: producir notes/01_design_fe.md (theory-driven-design.md)
+   ⚠️ Antes de codificar: producir notes/02_design_fe.md (theory-driven-design.md)
       con al menos las 6 queries al rag-books-mcp que exige la Regla 3
       (target transform, split, outliers, escalado, encoding, desbalance).
    • Eliminar registros con categorías raras
@@ -114,7 +140,7 @@ Datos crudos (SOLO desde Hugging Face Hub)
     │
     ▼
 3. Decisión de modelo (⚠️ OBLIGATORIO: preguntar al usuario)
-   ⚠️ Antes de codificar: producir notes/02_design_modeling.md (theory-driven-design.md)
+   ⚠️ Antes de codificar: producir notes/03_design_modeling.md (theory-driven-design.md)
    • Presentar al usuario la tabla de familias disponibles
    • Ofrecer recomendación basada en el tipo de problema
    • ESPERAR confirmación explícita del usuario antes de continuar
@@ -131,7 +157,7 @@ Datos crudos (SOLO desde Hugging Face Hub)
     │
     ▼
 5. Validación (workflow-validation.md)
-   ⚠️ Antes de codificar: producir notes/03_design_validation.md (theory-driven-design.md)
+   ⚠️ Antes de codificar: producir notes/04_design_validation.md (theory-driven-design.md)
    • Métricas apropiadas al problema
    • Confusion matrix, ROC, residuales
    • Calibración del umbral (clasificación con desbalance)
@@ -193,6 +219,7 @@ La app `app_results/app_results.py` es un dashboard local de Gradio que visualiz
 
 ## Principios Universales
 
+0. **Business-Context First (BLOQUEANTE)** — Antes de cualquier código (incluida la ingesta), identificar el **régimen del problema** (regresión / clasificación) y producir `notes/00_business_context.md` siguiendo `business-context.md` con las cinco preguntas adaptadas al régimen. En clasificación: problema, decisión, costo FP, costo FN, métrica + umbral. En regresión: problema, decisión, costo de sobre-estimar, costo de sub-estimar, métrica (MAE/RMSE/MAPE/RMSLE/pinball) + umbral máximo aceptable. El resto del pipeline hereda de aquí la métrica primaria, el `scoring` del search de hiperparámetros, y el costo asimétrico de errores. Sin este documento, las decisiones del agente quedan a la imaginación y producen métricas equivocadas. Excepción explícita: datasets pedagógicos canónicos (Iris, Titanic, Penguins, etc.) pueden usar la versión corta (preguntas 1 + 5), declarándolo en el documento.
 1. **No actuar sin instrucciones del usuario** — NUNCA ejecutar un pipeline, generar código ni elegir un dataset por cuenta propia. Siempre esperar a que el usuario indique explícitamente qué quiere hacer. Si el usuario solo dice "hola" o activa el Power sin contexto, preguntar qué proyecto quiere trabajar.
 2. **Hugging Face es la ÚNICA fuente de datasets aceptada** — Esta versión del Power solo soporta ingesta desde Hugging Face Hub. Si el usuario menciona Kaggle, URLs, archivos locales u otra fuente, informar que no está soportado y ayudar a buscar un dataset equivalente en HF Hub. El formato requerido es `usuario/nombre-dataset`.
 3. **Preguntar obligatoriamente al usuario qué modelo de ML utilizar** — Antes de entrenar, SIEMPRE preguntar al usuario qué modelo (o modelos) desea utilizar. Nunca asumir ni elegir el modelo automáticamente. Presentar la tabla de familias disponibles y esperar confirmación explícita del usuario. Si el usuario no sabe, ofrecer recomendaciones basadas en el tipo de problema pero dejar la decisión final al usuario.
@@ -334,7 +361,7 @@ Los steering files de teoría (`theory-*.md`) están basados en cinco libros de 
    - Licencia: **CC BY-NC-ND 3.0 US** (NoDerivatives)
    - Filosofía iterativa de EDA y data wrangling. Capítulo clave: **10 EDA**.
    - ⚠️ **Los ejemplos están en R con tidyverse.** El agente NO debe generar código en R para el usuario. Lo que se reusa son los principios (ciclo iterativo, qué mirar primero, cómo formular preguntas) y se traducen a pandas/seaborn. Detalles y tabla de equivalencias en `theory-rag-guide.md` §"Libros indexados".
-   - ⚠️ **Solo disponible en local.** Por la cláusula NoDerivatives, R4DS está indexado solo en la variante stdio del RAG (variante B abajo) y en v2 cuando se usa con `RAG_CHROMA_DIR` local. El Space público de v2 NO contiene R4DS.
+   - ✅ **Disponible en todos los modos desde v2.2.0** (Space v1, Space v2 + dataset HF, stdio local). Atribución explícita y mecanismo de takedown documentados en el [DATA_CARD del dataset](https://huggingface.co/datasets/gusdelact/rag-esl-islp-chromadb).
 
 ### 🔍 RAG sobre los Libros (MCP Server independiente)
 

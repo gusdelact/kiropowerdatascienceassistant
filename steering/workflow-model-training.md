@@ -4,6 +4,8 @@
 >
 > Para heurísticas específicas de cada familia, ver los archivos `models-*.md`.
 
+> **Pre-requisitos bloqueantes**: (1) `notes/00_business_context.md` (ver `business-context.md`) — la Pregunta 4 (métrica primaria + umbral) define el `scoring` del `RandomizedSearchCV` / `GridSearchCV`, y la Pregunta 3 vs 4 (asimetría de costos) define `class_weight` o `scale_pos_weight` en clasificación; (2) `notes/03_design_modeling.md` (ver `theory-driven-design.md`). El `scoring` del search NO se elige por default: sale del documento de contexto.
+
 Este steering cubre el flujo **común a todos los modelos**:
 1. **Confirmación del modelo con el usuario (OBLIGATORIO)**
 2. Carga del dataset procesado

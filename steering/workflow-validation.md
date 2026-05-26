@@ -5,6 +5,8 @@
 >
 > **Nota sobre paralelización:** Los ejemplos usan `n_jobs=-1` por simplicidad, pero en producción usar máximo 70% de los cores: `n_jobs=max(int(os.cpu_count() * 0.7), 1)`. Ver `workflow-model-training.md` §Heurísticas de Escalabilidad.
 
+> **Pre-requisitos bloqueantes**: (1) `notes/00_business_context.md` (ver `business-context.md`) — la Pregunta 4 (métrica primaria + umbral mínimo) define qué métrica se reporta como decisiva y cuál es el criterio de aceptación del modelo, y la Pregunta 3 vs 4 (asimetría de costos) define dónde se calibra el umbral en la curva precision-recall; (2) `notes/04_design_validation.md` (ver `theory-driven-design.md`). El criterio "pasa / no pasa" no es un default: sale del umbral mínimo declarado en el contexto.
+
 Este steering cubre cómo evaluar modelos **independiente de la familia**:
 1. Métricas para clasificación
 2. Métricas para regresión

@@ -6,7 +6,9 @@ inclusion: always
 
 Esta convención aplica a **todo proyecto de DS / ML que entrene un modelo usando este power**. Define el protocolo obligatorio para usar el servidor MCP `rag-books-mcp` (ESL + ISLP) **antes** de escribir el código de feature engineering, modelado o validación.
 
-> **Relación con `theory-rag-guide.md`**: aquel steering describe *cómo* invocar las tools del RAG (qué tool usar, formato de citas, modo degradado). Este steering describe *cuándo* y *con qué entregable* (los `notes/0N_design_*.md` como artefactos obligatorios antes de codificar). Los dos son complementarios: `theory-rag-guide.md` es el manual de la herramienta; este es el proceso del proyecto.
+> **Pre-requisito bloqueante**: este steering supone que `notes/00_business_context.md` ya existe (ver `business-context.md`). Las consultas al RAG se afinan con el contexto de negocio capturado ahí (problema, costo asimétrico de errores, métrica + umbral). Sin contexto de negocio las queries son genéricas y las citas, descontextualizadas. Si `notes/00_business_context.md` no existe, **detener el proceso y producirlo primero**.
+>
+> **Relación con `theory-rag-guide.md`**: aquel steering describe *cómo* invocar las tools del RAG (qué tool usar, formato de citas, modo degradado). Este steering describe *cuándo* y *con qué entregable* (los `notes/0N_design_*.md` con N ∈ {1, 2, 3, 4} como artefactos obligatorios antes de codificar). Los dos son complementarios: `theory-rag-guide.md` es el manual de la herramienta; este es el proceso del proyecto.
 
 El objetivo es invertir el patrón anti-deseado:
 
@@ -31,16 +33,16 @@ Donde haya conflicto aparente entre ambos (por ejemplo, la tabla de queries por 
 
 ## Regla 1: el pipeline tiene cuatro fases de diseño obligatorias
 
-El proyecto debe producir cuatro documentos en `notes/`, **en este orden**:
+El proyecto debe producir cuatro documentos en `notes/`, **en este orden** (después de `notes/00_business_context.md`, ver `business-context.md`):
 
-0. `notes/00_design_eda.md` — diseño y hallazgos del análisis exploratorio.
-1. `notes/01_design_fe.md` — diseño del feature engineering.
-2. `notes/02_design_modeling.md` — diseño del modelado.
-3. `notes/03_design_validation.md` — diseño de la validación.
+1. `notes/01_design_eda.md` — diseño y hallazgos del análisis exploratorio.
+2. `notes/02_design_fe.md` — diseño del feature engineering.
+3. `notes/03_design_modeling.md` — diseño del modelado.
+4. `notes/04_design_validation.md` — diseño de la validación.
 
-Cada uno se redacta consultando el `rag-books-mcp` y citando las secciones específicas. **No se permite escribir código de la fase N si el `notes/0N_*.md` correspondiente no existe**, salvo en los casos de la Regla 6 (excepciones).
+Cada uno se redacta consultando el `rag-books-mcp` y citando las secciones específicas. **No se permite escribir código de la fase N si el `notes/0N_design_*.md` correspondiente no existe**, salvo en los casos de la Regla 6 (excepciones).
 
-**Timing distinto para `notes/00_design_eda.md`**: a diferencia de las notas 01-03 que se producen *antes* del código de su fase, la nota 00 se produce **como parte de la fase de EDA**. Tiene una estructura mínima pre-EDA (preguntas guía e hipótesis) y se **completa al finalizar el EDA** con los hallazgos y el puente hacia FE. Bloquea la transición a `notes/01_design_fe.md`, no la ejecución de `02_eda.py`.
+**Timing distinto para `notes/01_design_eda.md`**: a diferencia de las notas 02-04 que se producen *antes* del código de su fase, la nota 01 (EDA) se produce **como parte de la fase de EDA**. Tiene una estructura mínima pre-EDA (preguntas guía e hipótesis) y se **completa al finalizar el EDA** con los hallazgos y el puente hacia FE. Bloquea la transición a `notes/02_design_fe.md`, no la ejecución de `02_eda.py`.
 
 El orden de las fases coincide con el orden del flujo del power. La diferencia es que cada transición fase → código (o EDA → diseño de FE) pasa por el documento de diseño.
 
@@ -94,7 +96,7 @@ Sin las cinco secciones, el documento no cumple. Si una sección es N/A, justifi
 
 Cada `notes/0N_design_*.md` debe contener **al menos** las siguientes consultas al RAG (más las que el problema requiera):
 
-### Fase 0: EDA (`notes/00_design_eda.md`)
+### Fase 1: EDA (`notes/01_design_eda.md`)
 
 EDA tiene un régimen distinto a las demás fases: las consultas al RAG **no son obligatorias antes** de codificar `02_eda.py` (porque EDA es exploratorio por naturaleza), pero **sí lo son al cerrarlo**, para anclar los hallazgos que dispararán las decisiones de FE. Las consultas mínimas al cerrar el EDA son:
 
@@ -106,7 +108,7 @@ EDA tiene un régimen distinto a las demás fases: las consultas al RAG **no son
 
 Si el dataset no presenta una de estas situaciones (ej. sin desbalance, sin missings, sin outliers), declarar "no aplica" en el documento y no consultar por compromiso.
 
-### Fase 1: feature engineering (`notes/01_design_fe.md`)
+### Fase 2: feature engineering (`notes/02_design_fe.md`)
 
 - Distribución del target y transformaciones (`log1p`, Box-Cox, Yeo-Johnson).
 - Estrategia de split: estratificado por target en regresión (bins) o por clase en clasificación.
@@ -115,14 +117,14 @@ Si el dataset no presenta una de estas situaciones (ej. sin desbalance, sin miss
 - Encoding de categóricas según cardinalidad y familia de modelo candidata.
 - Manejo de desbalance (solo si es clasificación): SMOTE / `class_weight` / `scale_pos_weight`, siempre post-split.
 
-### Fase 2: modelado (`notes/02_design_modeling.md`)
+### Fase 3: modelado (`notes/03_design_modeling.md`)
 
 - Elección de familia de modelo (lineal / árboles / SVM / ensemble / DL) según n, p, linealidad esperada, interpretabilidad.
 - Regularización (Ridge / Lasso / ElasticNet, `alpha`, `C`, `reg_alpha`, `reg_lambda`).
 - Hiperparámetros sensibles a teoría (`max_depth`, `learning_rate`, `n_estimators`, `subsample`, `max_features`).
 - Justificación del baseline (qué se compara contra qué y por qué).
 
-### Fase 3: validación (`notes/03_design_validation.md`)
+### Fase 4: validación (`notes/04_design_validation.md`)
 
 - Métrica primaria y métricas secundarias (por qué F1 / PR-AUC / RMSE / MAPE / R²).
 - K en cross-validation y estrategia (KFold, StratifiedKFold, GroupKFold).
@@ -164,12 +166,12 @@ Líneas de código que disparan esta verificación:
 
 | Fase | Disparadores |
 |---|---|
-| EDA | Iniciar `02_eda.py` con preguntas guía → crear `notes/00_design_eda.md` (estructura pre-EDA). Cerrar EDA antes de pasar a FE → completar `notes/00_design_eda.md` (hallazgos + puente). |
+| EDA | Iniciar `02_eda.py` con preguntas guía → crear `notes/01_design_eda.md` (estructura pre-EDA). Cerrar EDA antes de pasar a FE → completar `notes/01_design_eda.md` (hallazgos + puente). |
 | FE | `train_test_split`, `StandardScaler`, `OneHotEncoder`, `SMOTE`, `np.log1p` sobre target, `pd.qcut` para bins de stratify |
 | Modelado | Cualquier `from sklearn.linear_model`, `from sklearn.ensemble`, `from sklearn.svm`, `from xgboost`, `import torch`, etc. |
 | Validación | `cross_val_score`, `GridSearchCV`, `RandomizedSearchCV`, `precision_recall_curve`, `mean_squared_error` con intención de reportar |
 
-Excepción: el script de **ingesta** (`01_ingest.py`) no requiere diseño previo. El script de **EDA** (`02_eda.py`) puede ejecutarse con la nota 00 en estado pre-EDA (preguntas e hipótesis); la nota 00 debe quedar **completa** antes de iniciar `notes/01_design_fe.md`.
+Excepción: el script de **ingesta** (`01_ingest.py`) no requiere diseño previo del RAG, pero sí requiere que `notes/00_business_context.md` esté producido (ver `business-context.md`). El script de **EDA** (`02_eda.py`) puede ejecutarse con la nota 01 de EDA en estado pre-EDA (preguntas e hipótesis) siempre que el contexto de negocio ya esté capturado; la nota 01 de EDA debe quedar **completa** antes de iniciar `notes/02_design_fe.md`.
 
 ---
 
@@ -182,11 +184,11 @@ Cada documento de diseño debe **dejar rastro** en el código que produce:
   ```python
   """Feature engineering pipeline.
 
-  Diseño: notes/01_design_fe.md
+  Diseño: notes/02_design_fe.md
   """
   ```
 
-- La Model Card publicada en HF Hub debe incluir una sección "Fundamento Teórico" que **resuma** los cuatro documentos de diseño (00 EDA, 01 FE, 02 modelado, 03 validación) con sus citas. Las citas en la Model Card son consecuencia del diseño, no su origen.
+- La Model Card publicada en HF Hub debe incluir una sección "Fundamento Teórico" que **resuma** los cuatro documentos de diseño (01 EDA, 02 FE, 03 modelado, 04 validación) con sus citas. Las citas en la Model Card son consecuencia del diseño, no su origen.
 
 - Los `notes/*.md` se versionan junto con el código (no van a `.gitignore`). Son parte de la entrega del proyecto.
 
@@ -228,7 +230,7 @@ Para evitar tanto la pobreza (consultar 1 vez para todo) como el exceso (consult
 
 ---
 
-## Plantilla mínima de `notes/00_design_eda.md`
+## Plantilla mínima de `notes/01_design_eda.md`
 
 EDA usa una plantilla **bipartita**: una parte se llena *al inicio* (preguntas e hipótesis), la otra *al cierre* (hallazgos y puente a FE). Las cinco secciones de la Regla 2 siguen vigentes pero adaptadas al carácter exploratorio.
 
@@ -266,9 +268,9 @@ Anclar los hallazgos relevantes para FE. Una subsección por hallazgo accionable
 ### Hallazgo 2: ...
 
 ## 4. Implicaciones para el código (puente a FE)
-Tabla de hallazgos → decisiones que entrarán en `notes/01_design_fe.md`:
+Tabla de hallazgos → decisiones que entrarán en `notes/02_design_fe.md`:
 
-| Hallazgo | Decisión que dispara en FE | Sección de `01_design_fe.md` |
+| Hallazgo | Decisión que dispara en FE | Sección de `02_design_fe.md` |
 |---|---|---|
 | Skew del target = 2.3 | Evaluar `log1p(y)` | Decisión 1 |
 | Multicolinealidad `X1`-`X2` > 0.9 | Eliminar `X2` o usar Ridge | Decisión 5 + Decisión modelado |
@@ -290,7 +292,7 @@ Tabla de hallazgos → decisiones que entrarán en `notes/01_design_fe.md`:
 
 ---
 
-## Plantilla mínima de `notes/01_design_fe.md`
+## Plantilla mínima de `notes/02_design_fe.md`
 
 ```markdown
 # Diseño de Feature Engineering: <proyecto>

@@ -55,8 +55,86 @@ Antes de invocar el script de despliegue, el agente DEBE verificar explícitamen
 - [ ] `app_inference/requirements.txt` usa `huggingface-hub>=0.28.1` (o rango compatible), NO `==0.25.0`.
 - [ ] La versión de `gradio` en `requirements.txt` coincide con el `sdk_version` del `README.md` del Space (ambos del mismo rango / misma major).
 - [ ] `pip install --dry-run -r app_inference/requirements.txt` resuelve sin error en local.
+- [ ] Cualquier archivo de salida que la app genere (CSV, PNG, JSON descargables) se escribe a `tempfile.gettempdir()`, NO a `outputs/` ni a rutas relativas del proyecto (Error 3).
+- [ ] Las llamadas a `model.predict(...)` reciben un `pd.DataFrame` con las columnas en el orden de `model_info.json["feature_order"]`, NO un `ndarray` ni un dict (Error 4).
 
 Si cualquiera de estos puntos falla, **corregir antes de subir**. Resubir un Space después de un build error consume tiempo de cola en HF y confunde el feedback al usuario.
+
+### Error 3 · `gradio.exceptions.InvalidPathError: Cannot move /outputs/predictions.csv to the gradio cache dir`
+
+**Causa**: la app genera un archivo de salida (CSV de predicciones por lotes, PNG de un plot, JSON de un reporte) en una ruta relativa al proyecto local (`outputs/predictions.csv`, `PROJECT_ROOT / "outputs" / "..."`). En el contenedor de HF Spaces, el cwd es `/app` y `outputs/predictions.csv` se resuelve como `/outputs/predictions.csv`, que está **fuera de las rutas permitidas por Gradio**: solo se aceptan archivos en `/app` (cwd) o en el tempdir del sistema (`/tmp` en Linux, `/var/folders/.../T/` en macOS local). La app revienta cuando intenta devolver el archivo al usuario.
+
+**Por qué se cae el agente en esto**: el código de `app_inference.py` se prueba primero localmente (donde `outputs/` es válido porque pertenece al cwd del proyecto) y se sube al Space sin re-evaluar la ruta. El bug solo se manifiesta en HF Spaces, no en local.
+
+**Patrón correcto (OBLIGATORIO)**: usar `tempfile.gettempdir()` para cualquier archivo de salida que la app produzca y devuelva al usuario. Es la única ruta segura cross-platform (en HF Spaces es `/tmp`, en Linux local también, en macOS es `/var/folders/.../T/`).
+
+```python
+import tempfile
+from pathlib import Path
+import pandas as pd
+
+def predict_batch(file):
+    if file is None:
+        return "Sube un CSV", None, None
+    df = pd.read_csv(file.name)
+    predictions = model.predict(df[FEATURE_NAMES])
+    result_df = df.copy()
+    result_df["prediction"] = predictions
+
+    # ✅ Correcto: tempdir del sistema, válido en local y en HF Spaces.
+    out_path = Path(tempfile.gettempdir()) / "predictions.csv"
+    result_df.to_csv(out_path, index=False)
+    return f"✅ {len(predictions)} predicciones", result_df.head(20), str(out_path)
+
+# ❌ Incorrecto: ruta relativa al proyecto, falla en HF Spaces.
+# out_path = PROJECT_ROOT / "outputs" / "predictions.csv"
+# out_path = Path("outputs") / "predictions.csv"
+```
+
+**Prohibido**: escribir archivos descargables en rutas relativas al proyecto (`outputs/`, `data/`, `cache/`). Prohibido también construir la ruta con `Path(__file__).parent / "outputs" / ...` por la misma razón.
+
+**Validación**: en local, imprime `tempfile.gettempdir()` al iniciar la app y confirma que es una ruta del SO (no del proyecto). Si la prueba local de "Predicción por lotes" funciona y el archivo descargable abre, en Spaces también va a funcionar.
+
+### Error 4 · `UserWarning: X does not have valid feature names, but <Estimator> was fitted with feature names`
+
+**Causa**: la app pasa un `np.ndarray` (o un dict convertido a array) a `model.predict(...)`, pero el modelo se entrenó con un `pd.DataFrame` que tenía nombres de columnas. sklearn ≥1.0 verifica que los inputs en inferencia coincidan con los del entrenamiento (incluidos los nombres) y emite el warning. **No es un error fatal, pero es síntoma de un riesgo real**: si pasas las columnas en orden distinto al del entrenamiento, el modelo predice con features cruzadas y devuelve resultados silenciosamente incorrectos.
+
+**Por qué se cae el agente en esto**: en `predict_one(...)` recibe los valores de los sliders como argumentos sueltos (`income, age, rooms, ...`) y los junta en un `np.array([[income, age, rooms, ...]])`. El array funciona, pero pierde los feature names y depende de que el orden de los argumentos coincida con `feature_order`.
+
+**Patrón correcto (OBLIGATORIO)**: envolver siempre los inputs en un `pd.DataFrame` con las columnas en el orden declarado en `model_info.json["feature_order"]` (Regla 4 de `notebooks-ds.md`). Esto elimina el warning, ancla el orden a una sola fuente de verdad y previene cruces silenciosos.
+
+```python
+import pandas as pd
+
+# Cargado al iniciar la app, junto con model y preprocessor:
+import json
+info = json.load(open(hf_hub_download(MODEL_REPO, "model_info.json")))
+FEATURE_NAMES = info["feature_order"]  # única fuente de verdad
+
+def predict_one(**kwargs):
+    # ✅ Correcto: DataFrame con columnas en el orden canónico.
+    X = pd.DataFrame([{name: kwargs[name] for name in FEATURE_NAMES}])
+    y_hat = float(model.predict(X)[0])
+    return y_hat
+
+def predict_batch(file):
+    df = pd.read_csv(file.name)
+    # ✅ Correcto: reordenar y subseleccionar para que coincida con el entrenamiento.
+    missing = [c for c in FEATURE_NAMES if c not in df.columns]
+    if missing:
+        return f"❌ Faltan columnas: {missing}", None, None
+    X = df[FEATURE_NAMES]
+    df["prediction"] = model.predict(X)
+    return "OK", df.head(20), None
+
+# ❌ Incorrecto: ndarray, pierde nombres y depende del orden de los argumentos.
+# X = np.array([[income, age, rooms, bedrooms, population]])
+# y_hat = model.predict(X)[0]
+```
+
+**Prohibido**: pasar `np.ndarray`, `list[list]` o dict a `model.predict(...)` cuando el modelo se entrenó con DataFrame. Prohibido también hardcodear el orden de columnas como una constante en `app_inference.py`: leerlo siempre de `model_info.json["feature_order"]`.
+
+**Validación**: ejecutar la app local con todos los flujos (`predict_one`, `predict_batch`) y confirmar que el log no muestra `UserWarning: X does not have valid feature names`. Si aparece el warning, hay un path que sigue pasando ndarray.
 
 ---
 
@@ -369,9 +447,12 @@ Despliegue: uv run python scripts/08_deploy_hf.py
 """
 import gradio as gr
 import joblib
+import json
 import pandas as pd
 import numpy as np
 import os
+import tempfile
+from pathlib import Path
 from huggingface_hub import hf_hub_download
 
 # --- Configuración ---
@@ -380,11 +461,18 @@ MODEL_REPO = os.environ.get("HF_MODEL_REPO", "usuario/mi-modelo")
 
 
 def load_model():
-    """Descarga y carga el modelo desde HF Hub."""
+    """Descarga y carga el modelo + metadata desde HF Hub.
+
+    Devuelve (model, encoder, info) donde info["feature_order"] es la
+    única fuente de verdad del orden de columnas (Regla 4 notebooks-ds.md).
+    """
     print(f"Descargando modelo desde HF Hub: {MODEL_REPO}")
 
     model_path = hf_hub_download(MODEL_REPO, "model.joblib")
     model = joblib.load(model_path)
+
+    info_path = hf_hub_download(MODEL_REPO, "model_info.json")
+    info = json.loads(Path(info_path).read_text())
 
     # Intentar cargar label encoder si existe
     encoder = None
@@ -394,16 +482,18 @@ def load_model():
     except Exception:
         pass
 
-    return model, encoder
+    return model, encoder, info
 
 
 # --- Cargar modelo al iniciar ---
-model, encoder = load_model()
+model, encoder, info = load_model()
+FEATURE_NAMES = info["feature_order"]  # orden canónico, evita Error 4
 
 
 def predict(**kwargs):
-    """Predicción con el modelo cargado."""
-    input_df = pd.DataFrame([kwargs])
+    """Predicción individual. Envolvemos siempre en DataFrame con columnas
+    en el orden de FEATURE_NAMES (evita UserWarning + cruces silenciosos)."""
+    input_df = pd.DataFrame([{name: kwargs[name] for name in FEATURE_NAMES}])
     prediction = model.predict(input_df)[0]
 
     if hasattr(model, "predict_proba"):
@@ -420,12 +510,23 @@ def predict(**kwargs):
 
 
 def predict_batch(file):
-    """Predicción por lotes desde CSV."""
+    """Predicción por lotes desde CSV.
+
+    Salida descargable en tempfile.gettempdir() (evita Error 3 en HF Spaces).
+    Reordena las columnas a FEATURE_NAMES (evita Error 4).
+    """
     if file is None:
-        return "Sube un archivo CSV", None
+        return "Sube un archivo CSV", None, None
 
     df = pd.read_csv(file.name)
-    predictions = model.predict(df)
+
+    # Validar columnas y reordenar al canónico antes de predecir
+    missing = [c for c in FEATURE_NAMES if c not in df.columns]
+    if missing:
+        return f"❌ Faltan columnas: {missing}. Esperadas: {FEATURE_NAMES}", None, None
+    X = df[FEATURE_NAMES]
+
+    predictions = model.predict(X)
 
     result_df = df.copy()
     if encoder:
@@ -434,14 +535,18 @@ def predict_batch(file):
         result_df["prediction"] = predictions
 
     if hasattr(model, "predict_proba"):
-        probas = model.predict_proba(df)
+        probas = model.predict_proba(X)
         classes = model.classes_
         if encoder:
             classes = encoder.inverse_transform(range(len(classes)))
         for i, cls in enumerate(classes):
             result_df[f"proba_{cls}"] = probas[:, i]
 
-    return f"✅ {len(predictions)} predicciones generadas", result_df.head(20)
+    # Salida en tempdir del SO (válido en local y HF Spaces)
+    out_path = Path(tempfile.gettempdir()) / "predictions.csv"
+    result_df.to_csv(out_path, index=False)
+
+    return f"✅ {len(predictions)} predicciones generadas", result_df.head(20), str(out_path)
 
 
 # --- UI ---
@@ -477,11 +582,12 @@ with gr.Blocks(title="ML Predictor") as demo:
         batch_btn = gr.Button("Predecir Lote", variant="primary")
         batch_status = gr.Textbox(label="Estado")
         batch_results = gr.DataFrame(label="Resultados (preview)")
+        batch_download = gr.File(label="Descargar predicciones (CSV completo)")
 
         batch_btn.click(
             fn=predict_batch,
             inputs=file_input,
-            outputs=[batch_status, batch_results]
+            outputs=[batch_status, batch_results, batch_download]
         )
 
     with gr.Tab("Información del Modelo"):

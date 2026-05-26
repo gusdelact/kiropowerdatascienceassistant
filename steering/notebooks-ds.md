@@ -231,6 +231,60 @@ Si el proyecto evoluciona y el notebook queda desfasado respecto al pipeline en 
 
 Si el proyecto expone el modelo vía Gradio / FastAPI / Lambda, la lógica de `predict()` en el backend debe ser equivalente a la del `02_inferencia.ipynb`. La forma práctica de garantizarlo es extraer esa función a un módulo Python (`predict.py` o similar) y que tanto el notebook como el deploy la importen. Como el notebook es autocontenido (Regla 9), no puede importar ese módulo dentro del `.ipynb`; lo que sí debe hacer es **copiar literalmente** la función `predict()` desde el módulo, con un comentario `# debe coincidir con app_inference/predict.py — regenerar el notebook si cambia`.
 
+## Regla 11: paridad obligatoria del EDA entre notebook y script
+
+> Esta regla nació de un error recurrente: el notebook `01_entrenamiento.ipynb` se generaba con un EDA "resumen" mientras `scripts/02_eda.py` tenía la versión completa. El alumno que abre el notebook en Colab termina viendo menos de lo que el pipeline produce, y la nota `notes/01_design_eda.md` (que cita ambos) queda desfasada. Es ambiguo y se nota.
+
+El bloque de **EDA** del notebook `01_entrenamiento.ipynb` debe tener **paridad de profundidad** con `scripts/02_eda.py`. Eso significa que cada análisis que el script produce como figura o tabla en `outputs/figures/` y `outputs/reports/eda_report.json` también vive como celda del notebook, con el mismo cálculo y la misma narrativa.
+
+### Mapping mínimo obligatorio
+
+Si `02_eda.py` produce alguno de los análisis de la columna izquierda, el notebook DEBE tener la celda correspondiente en la columna derecha. La lista refleja el flujo del workflow `workflow-eda.md`:
+
+| Análisis del script | Celda obligatoria del notebook |
+|---|---|
+| Inspección inicial (`shape`, `info`, `describe`, dtypes) | Celda con esos mismos prints + `df.head()`. |
+| Calidad de datos (duplicados, nulos por columna, % de nulos) | Tabla de nulos con `isnull().sum()` + `% missing`. |
+| Distribución del target (skew, kurtosis, normalidad) | Histograma + KDE + tabla con skew, kurtosis, **Shapiro-Wilk** + auto-veredicto sobre log-transform si aplica. |
+| Distribuciones univariadas de cada feature numérica | Grid de histogramas + tabla con skew, kurtosis y `n_unique` por columna. |
+| Distribuciones de features categóricas (incluida la heurística umbral 13) | `value_counts(normalize=True)` por columna detectada como categórica. |
+| Detección de outliers (boxplots + conteo IQR por feature) | Boxplots + tabla con `n_outliers`, `% outliers` y fences (`Q1−1.5·IQR`, `Q3+1.5·IQR`) por feature **y target**. |
+| Scatter feature vs target con Pearson y Spearman | Grid de scatters con línea OLS + tabla ordenada por `|r|` con las dos correlaciones. |
+| Matriz de correlación + detección de pares con `|r| > 0.85` | Heatmap + lista ordenada de pares de features con `|r|` + veredicto multicolinealidad. |
+| Cualquier análisis ad-hoc dirigido por la conversación (p. ej. multimodalidad, conteos discretizados, perfiles de clase minoritaria) | Celda dedicada con el mismo cálculo y un párrafo markdown explicando el hallazgo. |
+
+> Si el script no genera alguno de los análisis (porque el dataset no lo amerita), el notebook tampoco lo incluye. La regla es **paridad**, no "todo siempre".
+
+### Mismas semillas, mismas particiones, mismas decisiones
+
+Para que las salidas del notebook coincidan numéricamente con las del script:
+
+- Compartir la misma `SEED` declarada en `config.yaml` (en el script) y en la celda inline de configuración (en el notebook, autocontención de la Regla 9).
+- Compartir la misma lista de features (`NUM_FEATURES`, `CAT_FEATURES`, `TARGET`).
+- Compartir las mismas heurísticas (umbral 13 para detectar categóricas, 1.5·IQR para outliers, 0.85 para multicolinealidad). Si el script las cambia, el notebook se regenera.
+
+### Cuándo regenerar el notebook
+
+El notebook se regenera con el script generador (`scripts/build_notebooks.py` u homólogo) en estos casos:
+
+1. Cualquier cambio en `02_eda.py` que añada, quite o modifique un análisis listado arriba.
+2. Cualquier ajuste a `notes/01_design_eda.md` que dispare nuevas figuras o tablas.
+3. Cualquier conversación con el usuario donde se profundice en un hallazgo específico (multimodalidad, segmentos, etc.) y la decisión sea conservar ese análisis en el pipeline. En ese caso, primero se actualiza `02_eda.py`, luego el script generador del notebook, y se regenera el `.ipynb`.
+
+### Sanity-check obligatorio antes de publicar
+
+Después de regenerar `01_entrenamiento.ipynb`:
+
+1. Ejecutarlo end-to-end con `jupyter nbconvert --to notebook --execute --inplace`.
+2. Comparar contra `outputs/reports/eda_report.json`: las cifras clave (skew del target, p-value de Shapiro, conteos de outliers, top-5 correlaciones) deben coincidir hasta la precisión esperada por la `SEED`.
+3. Si las cifras divergen, hay drift entre script y notebook: alguna heurística cambió y solo se aplicó en uno de los dos. **No publicar el notebook hasta resolverlo.**
+
+### Qué NO hacer
+
+- Generar un EDA "minimalista" en el notebook bajo el argumento de "que quepa en Colab CPU". El notebook debe ejecutarse en Colab CPU; pero si el script lo hace, el notebook también puede.
+- Saltarse el grid de scatters feature vs target, la matriz de correlación o los boxplots con conteo IQR. Son las tres tablas que más se citan en `notes/01_design_eda.md` para justificar decisiones de FE.
+- Omitir un análisis ad-hoc que se discutió en chat (multimodalidad, perfiles de la clase minoritaria, etc.) "porque no estaba en la lista canónica". La lista de arriba es el mínimo, no el techo. La conversación con el usuario es parte del diseño.
+
 ## Qué NO hacer
 
 - No mezclar entrenamiento e inferencia en el mismo notebook.
@@ -241,6 +295,7 @@ Si el proyecto expone el modelo vía Gradio / FastAPI / Lambda, la lógica de `p
 - No subir los `.joblib` ni los `.png` generados por la prueba local al repo del modelo en HF Hub junto con los `.ipynb` (Regla 7: subir solo `notebooks/*.ipynb`).
 - No reentrenar dentro del notebook de inferencia ni siquiera "rapidito para probar". Si hace falta probar, va al de entrenamiento.
 - No leer datasets de Kaggle, URLs arbitrarias, archivos locales o APIs externas: la única fuente válida es Hugging Face Hub (regla del Power).
+- **No generar el EDA del notebook como una versión "resumida" del script** (Regla 11). Si `02_eda.py` produce 6 análisis, el notebook tiene 6 celdas equivalentes. Si el usuario discutió un análisis ad-hoc en chat (p. ej. multimodalidad), la celda también va al notebook.
 
 ## Plantilla mínima de celda de setup (entrenamiento, Colab + local)
 
